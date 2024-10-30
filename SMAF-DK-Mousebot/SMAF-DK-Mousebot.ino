@@ -73,8 +73,8 @@ void DeviceStatusThread(void* pvParameters);
 // Enum to represent different charger statuses.
 enum BatteryChargeStatusEnum : byte {
   NONE,      // Charger not connected.
-  CHARGING,  // Chager connected and charging battery.
-  CHARGED,   // Chager connected and battery is charged.
+  CHARGING,  // Charger connected and charging battery.
+  CHARGED,   // Charger connected and battery is charged.
 };
 
 float batteryVoltage = 0.0;                          // Variable to keep track of battery voltage.
