@@ -1,0 +1,290 @@
+@font-face {
+    font-family: 'AlbertSans';
+    src: url('./fonts/albert-sans.ttf') format('embedded-opentype'),
+        url('./fonts/albert-sans.ttf') format('woff2'),
+        url('./fonts/albert-sans.ttf') format('woff'),
+        url('./fonts/albert-sans.ttf') format('truetype'),
+        url('./fonts/albert-sans.ttf') format('svg');
+
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    /* App background - Light mode */
+    --app-background-100-light: hsla(0, 0%, 100%, 1.0);
+    --app-background-200-light: hsla(0, 0%, 95%, 1.0);
+
+    /* App background - Dark mode */
+    --app-background-100-dark: hsla(210, 10%, 10%, 1.0);
+    --app-background-200-dark: hsla(210, 10%, 15%, 1.0);
+
+    /* App background - Global */
+    --app-background-100: 0;
+    --app-background-200: 0;
+
+    /* Monochrome - Light mode */
+    --monochrome-600-light: hsla(210, 10%, 10%, 0.8);
+    --monochrome-500-light: hsla(210, 10%, 10%, 0.5);
+    --monochrome-400-light: hsla(210, 10%, 10%, 0.3);
+    --monochrome-300-light: hsla(210, 10%, 10%, 0.25);
+    --monochrome-200-light: hsla(210, 10%, 10%, 0.08);
+    --monochrome-100-light: hsla(0, 0%, 100%, 1.0);
+
+    /* Monochrome - Dark mode */
+    --monochrome-600-dark: hsla(0, 0%, 100%, 0.8);
+    --monochrome-500-dark: hsla(0, 0%, 100%, 0.5);
+    --monochrome-400-dark: hsla(0, 0%, 100%, 0.3);
+    --monochrome-300-dark: hsla(0, 0%, 100%, 0.25);
+    --monochrome-200-dark: hsla(0, 0%, 100%, 0.08);
+    --monochrome-100-dark: hsla(0, 0%, 100%, 0.05);
+
+    /* Monochrome - Global */
+    --monochrome-600: 0;
+    --monochrome-500: 0;
+    --monochrome-400: 0;
+    --monochrome-300: 0;
+    --monochrome-200: 0;
+    --monochrome-100: 0;
+
+    /* Accent - Light mode */
+    --accent-50-light: hsla(210, 100%, 20%, 1.0);
+    --accent-75-light: hsla(210, 100%, 35%, 1.0);
+    --accent-100-light: hsla(210, 100%, 50%, 1.0);
+    --accent-200-light: hsla(210, 100%, 95%, 1.0);
+
+    /*accentent - Dark mode */
+    --accent-50-dark: hsla(210, 100%, 20%, 1.0);
+    --accent-75-dark: hsla(210, 100%, 35%, 1.0);
+    --accent-100-dark: hsla(210, 100%, 50%, 0.8);
+    --accent-200-dark: hsla(210, 100%, 95%, 1.0);
+
+    /*accentent - Global */
+    --accent-50: 0;
+    --accent-75: 0;
+    --accent-100: 0;
+    --accent-200: 0;
+}
+
+@media (prefers-color-scheme: light) {
+    :root {
+        /* App background */
+        --app-background-100: var(--app-background-100-light);
+        --app-background-200: var(--app-background-200-light);
+
+        /* Monochrome */
+        --monochrome-600: var(--monochrome-600-light);
+        --monochrome-500: var(--monochrome-500-light);
+        --monochrome-400: var(--monochrome-400-light);
+        --monochrome-300: var(--monochrome-300-light);
+        --monochrome-200: var(--monochrome-200-light);
+        --monochrome-100: var(--monochrome-100-light);
+
+        /* Accent */
+        --accent-50: var(--accent-50-light);
+        --accent-75: var(--accent-75-light);
+        --accent-100: var(--accent-100-light);
+        --accent-200: var(--accent-200-light);
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        /* App background */
+        --app-background-100: var(--app-background-100-dark);
+        --app-background-200: var(--app-background-200-dark);
+
+        /* Monochrome */
+        --monochrome-600: var(--monochrome-600-dark);
+        --monochrome-500: var(--monochrome-500-dark);
+        --monochrome-400: var(--monochrome-400-dark);
+        --monochrome-300: var(--monochrome-300-dark);
+        --monochrome-200: var(--monochrome-200-dark);
+        --monochrome-100: var(--monochrome-100-dark);
+
+        /* Accent */
+        --accent-50: var(--accent-50-dark);
+        --accent-75: var(--accent-75-dark);
+        --accent-100: var(--accent-100-dark);
+        --accent-200: var(--accent-200-dark);
+    }
+}
+
+* {
+    box-sizing: border-box;
+
+    margin: 0;
+    padding: 0;
+
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+
+    pointer-events: none;
+}
+
+input[type='text'],
+input[type='submit'],
+input[type='reset'],
+input[type='checkbox'],
+select {
+    all: unset;
+}
+
+html {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    background-color: var(--app-background-100);
+}
+
+body {
+    font-family: "AlbertSans";
+    /* , system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; */
+
+    font-size: 16px;
+    line-height: 24px;
+    letter-spacing: -0.2px;
+    color: var(--monochrome-600);
+
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+
+    padding: 28px;
+    height: 100vh;
+    width: 100vw;
+    background-color: var(--app-background-100);
+    overflow: hidden;
+}
+
+#diagnostics-frame {
+    color: var(--monochrome-500);
+    z-index: 1200;
+}
+
+h1 {
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 48px;
+    letter-spacing: -1px;
+
+    z-index: 1200;
+
+    margin-bottom: 4px;
+}
+
+strong {
+    font-weight: 550;
+}
+
+/* Circle Indicator Styling */
+#motionIndicator {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 120px;
+    height: 120px;
+    border-color: var(--accent-100);
+    border-width: 4.5px;
+    border-style: solid;
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    display: none;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.disabled-border {
+    border-color: red !important;
+}
+
+.disabled-fill {
+    background: red !important;
+}
+
+#precisionIndicator {
+    width: 12px;
+    height: 12px;
+    background: var(--accent-100);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+#startIndicator {
+    width: 12px;
+    height: 12px;
+    background-color: var(--monochrome-300);
+    position: absolute;
+    border-radius: 50%;
+    display: none;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+
+#verticalLine {
+    width: 1px;
+    top: 0;
+    bottom: 0;
+    display: none;
+    background-color: var(--monochrome-200);
+    position: absolute;
+    transform: translate(-50%, 0%);
+    pointer-events: none;
+}
+
+#horizontalLine {
+    height: 1px;
+    left: 0;
+    right: 0;
+    display: none;
+    background-color: var(--monochrome-200);
+    position: absolute;
+    transform: translate(0%, -50%);
+    pointer-events: none;
+}
+
+#driftIndicator {
+    top: 0;
+    bottom: 0;
+    display: none;
+    position: absolute;
+    border-left: 1px solid var(--monochrome-200);
+    border-right: 1px solid var(--monochrome-200);
+    background-image: repeating-linear-gradient(45deg, var(--app-background-200) 0px, var(--app-background-200) 1px, var(--app-background-100) 0px, var(--app-background-100) 50%);
+    background-size: 8px 8px;
+    transform: translate(-50%, 0%);
+    pointer-events: none;
+}
+
+#verticalLimitIndicator,
+#horizontalLimitIndicator {
+    display: none;
+    position: absolute;
+    background: transparent;
+    pointer-events: none;
+}
+
+#verticalLimitIndicator {
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid var(--monochrome-200);
+    border-right: 1px solid var(--monochrome-200);
+    transform: translate(-50%, 0%);
+}
+
+#horizontalLimitIndicator {
+    left: 0;
+    right: 0;
+    border-top: 1px solid var(--monochrome-200);
+    border-bottom: 1px solid var(--monochrome-200);
+    transform: translate(0%, -50%);
+}
