@@ -1,6 +1,6 @@
 /**
-* @file SMAF-DK-Mousebot.ino
-* @brief Main Arduino sketch for the SMAF-DK-Mousebot project.
+* SMAF-DK-Mousebot.ino
+* Main Arduino sketch for the SMAF-DK-Mousebot project.
 *
 * @license MIT License
 *
@@ -51,15 +51,13 @@ const char* apPassword = "12345678";       // AP password.
 SFE_MAX1704X fuelGauge(MAX1704X_MAX17048);  // Create a MAX17048.
 
 /**
-* @brief Constructs an instance of the AudioVisualNotifications class.
-*
-* Initializes an instance of the AudioVisualNotifications class with the provided configurations.
-* The NeoPixel pin should be set up as OUTPUT before calling this constructor.
-*
-* @param neoPixelPin The pin connected to the NeoPixel LED strip.
-* @param neoPixelCount The number of NeoPixels in the LED strip.
+* Constructs an AudioVisualNotifications object with specified parameters.
+* Initializes the NeoPixel and speaker pin settings for audio-visual notifications.
+* 
+* @param neoPixelPin The GPIO pin connected to the NeoPixel.
+* @param neoPixelCount The number of NeoPixels in the strip.
 * @param neoPixelBrightness The brightness level of the NeoPixels (0-255).
-* @param speakerPin The pin connected to the speaker for audio feedback.
+* @param speakerPin The GPIO pin connected to the speaker.
 */
 AudioVisualNotifications notifications(neoPixel, 2, 40, speaker);
 
@@ -70,7 +68,10 @@ AudioVisualNotifications notifications(neoPixel, 2, 40, speaker);
 // Function prototype for the DeviceStatusThread function.
 void DeviceStatusThread(void* pvParameters);
 
-// Enum to represent different charger statuses.
+/**
+* Enum representing the different statuses of battery charging.
+* This enumeration indicates the current state of the battery charge.
+*/
 enum BatteryChargeStatusEnum : byte {
   NONE,      // Charger not connected.
   CHARGING,  // Charger connected and charging battery.
@@ -119,7 +120,7 @@ void setup() {
   Wire.setPins(sda, scl);
   Wire.begin();
 
-  // Give esp core some time to initialize serial.
+  // Give ESP32 core some time to initialize serial.
   delay(1200);
 
   // Initialize the fuel gauge.
@@ -234,7 +235,17 @@ void loop() {
   fuelGauge.quickStart();
 }
 
-// WebSocket event handler
+/**
+* Handles WebSocket events for client connections and data reception.
+* This function processes connection and disconnection events, as well as incoming binary data.
+* 
+* @param server The WebSocket server instance.
+* @param client The client instance that triggered the event.
+* @param type The type of the event (connect, disconnect, data).
+* @param arg Additional argument for event handling.
+* @param data Pointer to the received data.
+* @param len Length of the received data.
+*/
 void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
   if (type == WS_EVT_CONNECT) {
     debug(LOG, "Client connected.");
@@ -263,7 +274,12 @@ void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsE
   }
 }
 
-// Motor control functions.
+/**
+* Controls the right motor based on the given PWM value.
+* This function sets the motor speed and direction based on the input value.
+* 
+* @param value The PWM value to control the motor (positive for forward, negative for reverse).
+*/
 void controlRightMotor(int value) {
   int speed = map(abs(value), 0, 255, 0, 255);
   if (value > 0) {
@@ -278,7 +294,12 @@ void controlRightMotor(int value) {
   }
 }
 
-// Motor control functions.
+/**
+* Controls the left motor based on the given PWM value.
+* This function sets the motor speed and direction based on the input value.
+* 
+* @param value The PWM value to control the motor (positive for forward, negative for reverse).
+*/
 void controlLeftMotor(int value) {
   int speed = map(abs(value), 0, 255, 0, 255);
   if (value > 0) {
@@ -293,7 +314,14 @@ void controlLeftMotor(int value) {
   }
 }
 
-// Function to construct and send the data packet.
+/**
+* Sends battery data to connected WebSocket clients.
+* This function packages the battery voltage, state of charge (SoC), and charger status into a binary packet.
+* 
+* @param batteryVoltage The current battery voltage.
+* @param batterySoC The current state of charge of the battery (percentage).
+* @param chargerStatus The current status of the charger (enum).
+*/
 void sendBatteryDataToWebSocket(float batteryVoltage, int batterySoC, BatteryChargeStatusEnum chargerStatus) {
   uint8_t packet[6];
 
@@ -306,10 +334,10 @@ void sendBatteryDataToWebSocket(float batteryVoltage, int batterySoC, BatteryCha
 }
 
 /**
-* This thread continuously updates the RGB LED status based on the current device status.
-* It uses the DeviceStatusEnum values to determine the appropriate LED indication.
-*
-* @param pvParameters Pointer to task parameters (not used in this function).
+* Continuously runs to monitor device status.
+* This function includes a delay to prevent the watchdog timer from timing out.
+* 
+* @param pvParameters Pointer to parameters passed to the task (not used in this implementation).
 */
 void DeviceStatusThread(void* pvParameters) {
   while (true) {
