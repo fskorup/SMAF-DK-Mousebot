@@ -72,6 +72,7 @@ void setup() {
 * It also calls functions to control the motor speeds.
 */
 void loop() {
+  // Set charger state.
   if (digitalRead(chargerStatusPinA) == HIGH && digitalRead(chargerStatusPinB) == HIGH) {
     chargerState = NOT_CONNECTED;
   } else if (digitalRead(chargerStatusPinA) == LOW && digitalRead(chargerStatusPinB) == HIGH) {
@@ -80,6 +81,7 @@ void loop() {
     chargerState = CHARGING_COMPLETE;
   }
 
+  // Control motors.
   controlMotorA(motorA);
   controlMotorB(motorB);
 }
