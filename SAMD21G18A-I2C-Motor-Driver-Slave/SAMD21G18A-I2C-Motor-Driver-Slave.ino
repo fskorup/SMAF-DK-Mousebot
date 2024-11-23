@@ -46,10 +46,6 @@ const uint8_t CHARGING_COMPLETE = 3;  // Charger has completed charging.
 volatile uint8_t chargerState = NOT_CONNECTED;  // Variable to hold the current charger state.
 volatile uint8_t lastRequestType = 0;           // Stores the last request type received from the master.
 
-/**
-* This function initializes the I2C interface and sets the pin modes for
-* motor control and charger status.
-*/
 void setup() {
   Wire.begin(0x68);              // Initialize I2C as slave with address 0x68.
   Wire.onReceive(receiveEvent);  // Register event handler for receiving data.
@@ -65,12 +61,6 @@ void setup() {
   pinMode(chargerStatusPinB, INPUT);
 }
 
-/**
-* Main program loop
-* 
-* The loop function checks charger status pins and updates the charger state.
-* It also calls functions to control the motor speeds.
-*/
 void loop() {
   // Set charger state.
   if (digitalRead(chargerStatusPinA) == HIGH && digitalRead(chargerStatusPinB) == HIGH) {
