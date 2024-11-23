@@ -29,19 +29,13 @@
 #include "LittleFS.h"
 #include "Helpers.h"
 #include "AudioVisualNotifications.h"
+#include "MotorDriver.h"
 #include "SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library.h"
 
-const int sda = 1;                 // IO01, SDA
-const int scl = 2;                 // IO02, SCL
-const int neoPixel = 4;            // IO04, ADC1-CH0
-const int speaker = 5;             // IO05, ADC1-CH4
-const int leftMotorA = 15;         // IO15, U0RTS, ADC2-CH4
-const int leftMotorB = 16;         // IO16, U0CTS, ADC2-CH5
-const int rightMotorA = 8;         // IO08, ADC1-CH7
-const int rightMotorB = 7;         // IO07, ADC1-CH6
-const int chargerStatusPinA = 17;  // IO17, U1TXD, ADC2-CH6
-const int chargerStatusPinB = 18;  // IO18, U0RXD, ADC2-CH7
-const int motorDriverEnable = 9;   // IO09, ADC1-CH8
+const int sda = 1;       // IO01, SDA
+const int scl = 2;       // IO02, SCL
+const int neoPixel = 4;  // IO04, ADC1-CH0
+const int speaker = 5;   // IO05, ADC1-CH4
 
 AsyncWebServer server(80);                 // Create AsyncWebServer object on port 80.
 AsyncWebSocket webSocket("/ws");           // Create a WebSocket object.
@@ -49,6 +43,7 @@ const char* apName = "SMAF-DK-Mouse-Bot";  // AP name.
 const char* apPassword = "12345678";       // AP password.
 
 SFE_MAX1704X fuelGauge(MAX1704X_MAX17048);  // Create a MAX17048.
+MotorDriver motorDriver(0x68);              // Create a MotorDriver. Replace 0x68 with your slave device's address.
 
 /**
 * Constructs an AudioVisualNotifications object with specified parameters.
@@ -114,19 +109,50 @@ void setup() {
   // Play intro melody on speaker.
   notifications.introAudioNotification();
 
+  // Give ESP32 core some time to initialize all.
+  delay(2400);
+
   // Set Wire library custom I2C pins.
   // Example usage:
   // Wire.setPins(SDA_PIN_NUMBER, SCL_PIN_NUMBER);
   Wire.setPins(sda, scl);
   Wire.begin();
 
-  // Give ESP32 core some time to initialize serial.
-  delay(1200);
-
   // Initialize the fuel gauge.
   if (fuelGauge.begin() == false) {
     debug(ERR, "Fuel gauge not found on I2C bus. Check wiring.");
+    notifications.initializePixel(0, 255, 0, 0);  // Turn blue RGB led on.
+    notifications.initializePixel(1, 255, 0, 0);  // Turn blue RGB led on.
     while (true) {}
+  }
+
+  // Initialize the motor driver.
+  if (motorDriver.begin() == false) {
+    debug(ERR, "Motor driver not found on I2C bus. Check wiring.");
+    notifications.initializePixel(0, 255, 0, 0);  // Turn blue RGB led on.
+    notifications.initializePixel(1, 255, 0, 0);  // Turn blue RGB led on.
+    while (true) {}
+  }
+
+  // Check motors.
+  if (motorDriver.getChargerState() == 1) {
+    int value = 80;
+
+    motorDriver.enableMotorDriver();
+    motorDriver.setMotorValues(value, -value);
+    delay(80);
+    motorDriver.setMotorValues(-value, value);
+    delay(80);
+    motorDriver.setMotorValues(value, -value);
+    delay(80);
+    motorDriver.setMotorValues(-value, value);
+    delay(80);
+    motorDriver.setMotorValues(value, -value);
+    delay(80);
+    motorDriver.setMotorValues(-value, value);
+    delay(80);
+    motorDriver.setMotorValues(0, 0);
+    motorDriver.disableMotorDriver();
   }
 
   // Quick start restarts the fuel gauge in hopes of getting a more accurate.
@@ -162,21 +188,6 @@ void setup() {
   // Start server and show success message in terminal.
   server.begin();
   debug(SCS, "Web server started. You can control the Mousebot.");
-
-  // Initialize PWM channels and input/output pins for charger and motor driver.
-  int frequency = 320;  // 5000 is deafult.
-  int resolution = 8;   // 8 is default.
-
-  // ADC channels.
-  ledcAttach(leftMotorA, frequency, resolution);
-  ledcAttach(leftMotorB, frequency, resolution);
-  ledcAttach(rightMotorA, frequency, resolution);
-  ledcAttach(rightMotorB, frequency, resolution);
-
-  // Digital IO.
-  pinMode(chargerStatusPinA, INPUT);
-  pinMode(chargerStatusPinB, INPUT);
-  pinMode(motorDriverEnable, OUTPUT);
 }
 
 /**
@@ -188,31 +199,33 @@ void loop() {
   // Slow things down a bit.
   delay(240);
 
-  // Control RGB led's and motor driver based on charger status.
-  if (digitalRead(chargerStatusPinA) == LOW && digitalRead(chargerStatusPinB) == HIGH) {
-    // Set enum value to CHARGING.
-    batteryChargeStatus = CHARGING;
+  // Request and print the charger state from the slave
+  uint8_t chargerState = motorDriver.getChargerState();
 
-    // Disable motor driver while charging and light up the red led because the charging is in progress.
-    digitalWrite(motorDriverEnable, LOW);
-    notifications.initializePixel(0, 255, 0, 0);
-  } else if (digitalRead(chargerStatusPinA) == HIGH && digitalRead(chargerStatusPinB) == LOW) {
-    // Set enum value to CHARGED.
-    batteryChargeStatus = CHARGED;
-
-    // Disable motor driver while charging and light up the green led because the charging is complete.
-    digitalWrite(motorDriverEnable, LOW);
-    notifications.initializePixel(0, 0, 255, 0);
-  } else {
-    // Set enum value to NONE.
-    batteryChargeStatus = NONE;
-
-    // Enable motor driver and light up the blue led because we are not connected to charger any more.
-    digitalWrite(motorDriverEnable, HIGH);
-    notifications.initializePixel(0, 0, 0, 255);
+  if (chargerState) {
+    switch (chargerState) {
+      case 1:
+        batteryChargeStatus = NONE;
+        motorDriver.enableMotorDriver();
+        notifications.initializePixel(0, 0, 0, 255);
+        break;
+      case 2:
+        batteryChargeStatus = CHARGING;
+        motorDriver.disableMotorDriver();
+        notifications.initializePixel(0, 255, 0, 0);
+        break;
+      case 3:
+        batteryChargeStatus = CHARGED;
+        motorDriver.disableMotorDriver();
+        notifications.initializePixel(0, 0, 255, 0);
+        break;
+      default:
+        Serial.println("Charger state: Unknown");
+        break;
+    }
   }
 
-  // Write all fule gauge values to variables.
+  // Write all fuel gauge values to variables.
   batteryVoltage = fuelGauge.getVoltage();
   batterySoC = fuelGauge.getSOC();
 
@@ -265,52 +278,11 @@ void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsE
         debug(LOG, "Motor PWM values - Right motor at %s, Left at motor %s.", String(rightMotorPWMValue), String(leftMotorPWMValue));
 
         // Use the values to control the motors.
-        controlRightMotor(rightMotorPWMValue);
-        controlLeftMotor(leftMotorPWMValue);
+        motorDriver.setMotorValues(-leftMotorPWMValue, -rightMotorPWMValue);
       } else {
         debug(LOG, "Unexpected binary packet length.");
       }
     }
-  }
-}
-
-/**
-* Controls the right motor based on the given PWM value.
-* This function sets the motor speed and direction based on the input value.
-* 
-* @param value The PWM value to control the motor (positive for forward, negative for reverse).
-*/
-void controlRightMotor(int value) {
-  int speed = map(abs(value), 0, 255, 0, 255);
-  if (value > 0) {
-    ledcWrite(leftMotorA, speed);
-    ledcWrite(leftMotorB, 0);
-  } else if (value < 0) {
-    ledcWrite(leftMotorA, 0);
-    ledcWrite(leftMotorB, speed);
-  } else {
-    ledcWrite(leftMotorA, 0);
-    ledcWrite(leftMotorB, 0);
-  }
-}
-
-/**
-* Controls the left motor based on the given PWM value.
-* This function sets the motor speed and direction based on the input value.
-* 
-* @param value The PWM value to control the motor (positive for forward, negative for reverse).
-*/
-void controlLeftMotor(int value) {
-  int speed = map(abs(value), 0, 255, 0, 255);
-  if (value > 0) {
-    ledcWrite(rightMotorA, speed);
-    ledcWrite(rightMotorB, 0);
-  } else if (value < 0) {
-    ledcWrite(rightMotorA, 0);
-    ledcWrite(rightMotorB, speed);
-  } else {
-    ledcWrite(rightMotorA, 0);
-    ledcWrite(rightMotorB, 0);
   }
 }
 
