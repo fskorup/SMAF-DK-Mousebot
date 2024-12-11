@@ -111,12 +111,9 @@ void notFound(AsyncWebServerRequest* request) {
 void setup() {
   Serial.begin(115200);
 
-  // Initialize visualization library neo pixels.
+  // Initialize notifications.
   notifications.visual.initializePixels();
   notifications.visual.clearAllPixels();
-
-  // Play intro melody on speaker.
-  notifications.audio.introMelody();
 
   // Create a new task (DeviceStatusThread) and assign it to the primary core (ESP32_CORE_PRIMARY).
   xTaskCreatePinnedToCore(
@@ -141,22 +138,18 @@ void setup() {
   // Initialize the fuel gauge.
   while (fuelGauge.begin() == false) {
     debug(ERR, "Fuel gauge not found on I2C bus. Check wiring.");
+    delay(240);
   }
-
-  // Quick start restarts the fuel gauge in hopes of getting a more accurate.
-  fuelGauge.quickStart();
 
   // Initialize the motor driver.
   while (motorDriver.begin() == false) {
     debug(ERR, "Motor driver not found on I2C bus. Check wiring.");
+    delay(240);
   }
 
   // If motor driver initialised, disable it and set motor PWM values to zero.
   motorDriver.disableMotorDriver();
   motorDriver.setMotorValues(0, 0);
-
-  // Test motors.
-  motorDriver.commitMotorTest();
 
   // Initialize softAP and print IP address in terminal when softAP is initialized.
   WiFi.softAP(apName, apPassword);
@@ -205,6 +198,12 @@ void setup() {
   // Start server and show success message in terminal.
   server.begin();
   debug(SCS, "Web server started. You can control the Mousebot.");
+
+  // Quick start restarts the fuel gauge in hopes of getting a more accurate.
+  fuelGauge.quickStart();
+
+  // Test motors.
+  motorDriver.commitMotorTest();
 }
 
 /**
@@ -305,11 +304,11 @@ void toggleWheelCleanMode() {
     wheelCleanMode = !wheelCleanMode;
 
     if (wheelCleanMode) {
-      motorDriver.enableWheelCleanMode();
       notifications.audio.beep();
+      motorDriver.enableWheelCleanMode();
     } else {
-      motorDriver.disableWheelCleanMode();
       notifications.audio.doubleBeep();
+      motorDriver.disableWheelCleanMode();
     }
   }
 
@@ -389,10 +388,10 @@ void sendBatteryDataToWebSocket(float batteryVoltage, int batterySoC, MotorDrive
 * @param pvParameters Pointer to parameters passed to the task (not used in this implementation).
 */
 void DeviceStatusThread(void* pvParameters) {
-  while (true) {
-    // Clear the NeoPixel LED strip.
-    notifications.visual.clearAllPixels();
+  notifications.visual.clearAllPixels();
+  notifications.audio.introMelody();
 
+  while (true) {
     // Update LED status based on the current device status.
     switch (botStatus) {
       case NONE:

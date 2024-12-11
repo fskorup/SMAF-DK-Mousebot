@@ -144,8 +144,10 @@ void AudioVisualNotifications::Audio::doubleBeep() {
 * This function must be called to prepare the NeoPixel for use. 
 */
 void AudioVisualNotifications::Visual::initializePixels() {
-  _parent._neoPixel.begin();                                     // INITIALIZE NeoPixel strip object (REQUIRED).
-  _parent._neoPixel.setBrightness(_parent._neoPixelBrightness);  // Set BRIGHTNESS to about 1/5 (max = 255).
+  _parent._neoPixel.begin();
+  _parent._neoPixel.clear();
+  _parent._neoPixel.show();
+  _parent._neoPixel.setBrightness(_parent._neoPixelBrightness);
 }
 
 /**
