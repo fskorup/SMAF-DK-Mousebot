@@ -138,71 +138,118 @@ public:
   */
   AudioVisualNotifications(int neoPixelPin, int neoPixelCount, int neoPixelBrightness, int speakerPin);
 
-  /**
-  * Initializes the visual notifications by setting up the NeoPixel strip.
-  * This function must be called to prepare the NeoPixel for use. 
-  */
-  void initializeVisualNotifications();
+  // Nested class for audio notifications.
+  class Audio {
+  public:
+    explicit Audio(AudioVisualNotifications& parent)
+      : _parent(parent) {}
 
-  /**
-  * Clears all visual notifications on the NeoPixel strip.
-  * This function resets the NeoPixel strip to its default state.
-  */
-  void clearAllVisualNotifications();
+    /**
+    * Plays an introductory audio notification sequence through the speaker.
+    * This function produces a series of tones to signal the start of notifications.
+    */
+    void introMelody();
 
-  /**
-  * Plays an introductory audio notification sequence through the speaker.
-  * This function produces a series of tones to signal the start of notifications.
-  */
-  void introAudioNotification();
+    /**
+    * Plays a maintenance audio notification sequence through the speaker.
+    * This function produces a series of tones to signal maintenance notifications.
+    */
+    void maintenanceMelody();
 
-  /**
-  * Plays a maintenance audio notification sequence through the speaker.
-  * This function produces a series of tones to signal maintenance notifications.
-  */
-  void maintenanceAudioNotification();
+    /**
+    * Produces a single short beep using the speaker.
+    * The tone is played on the speaker connected to the specified pin.
+    */
+    void beep();
 
-  /**
-  * Displays a visual notification indicating that the system is not ready.
-  * This function uses the NeoPixel strip to show a red color on one pixel while turning off another.
-  */
-  void notReadyVisualNotification();
+    /**
+    * Produces a double beep using the speaker.
+    * This function generates two consecutive tones, 
+    * each lasting 120 milliseconds, with an 80-millisecond pause between them.
+    * The tones are played on the speaker connected to the specified pin.
+    */
+    void doubleBeep();
+  private:
+    AudioVisualNotifications& _parent;  // Reference to parent
+  };
 
-  /**
-  * Displays a visual notification indicating that the system is ready to send data.
-  * This function blinks two NeoPixels in green for a specified number of times to signal readiness.
-  */
-  void readyToSendVisualNotification();
+  // Nested class for visual notifications.
+  class Visual {
+  public:
+    explicit Visual(AudioVisualNotifications& parent)
+      : _parent(parent) {}
 
-  /**
-  * Displays a visual notification indicating that the system is waiting for a GNSS fix.
-  * This function uses the NeoPixel strip to show a blue color on one pixel while turning off another.
-  */
-  void waitingGnssFixVisualNotification();
+    /**
+    * Initializes the visual notifications by setting up the NeoPixel strip.
+    * This function must be called to prepare the NeoPixel for use. 
+    */
+    void initializePixels();
 
-  /**
-  * Displays a visual notification indicating that the system is loading.
-  * This function uses the NeoPixel strip to show a magenta color on one pixel while turning off another.
-  */
-  void loadingVisualNotification();
+    /**
+    * Clears all visual notifications on the NeoPixel strip.
+    * This function resets the NeoPixel strip to its default state.
+    */
+    void clearAllPixels();
 
-  /**
-  * Displays a visual notification indicating that maintenance is required.
-  * This function uses the NeoPixel strip to show a magenta color on two pixels briefly.
-  */
-  void maintenanceVisualNotification();
+    /**
+    * Displays a visual notification indicating that the system is not ready.
+    * This function uses the NeoPixel strip to show a red color on one pixel while turning off another.
+    */
+    void notReadyMode();
 
-  /**
-  * Initializes a specific NeoPixel with the given color values.
-  * This function sets the color of a specified pixel in the NeoPixel strip.
-  * 
-  * @param pixel The index of the NeoPixel to be initialized.
-  * @param red The red color value (0-255).
-  * @param green The green color value (0-255).
-  * @param blue The blue color value (0-255).
-  */
-  void initializePixel(int pixel, int red, int green, int blue);
+    /**
+    * Displays a visual notification indicating that the system is ready to send data.
+    * This function blinks two NeoPixels in green for a specified number of times to signal readiness.
+    */
+    void readyToSendMode();
 
+    /**
+    * Displays a visual notification indicating that the system is waiting for a GNSS fix.
+    * This function uses the NeoPixel strip to show a blue color on one pixel while turning off another.
+    */
+    void waitingGnssFixMode();
+
+    /**
+    * Displays a visual notification indicating that the system is loading.
+    * This function uses the NeoPixel strip to show a magenta color on one pixel while turning off another.
+    */
+    void loadingMode();
+
+    /**
+    * Displays a visual notification indicating that maintenance is required.
+    * This function uses the NeoPixel strip to show a magenta color on two pixels briefly.
+    */
+    void maintenanceMode();
+
+    /**
+    * Initializes a specific NeoPixel with the given color values.
+    * This function sets the color of a specified pixel in the NeoPixel strip.
+    * 
+    * @param pixel The index of the NeoPixel to be initialized.
+    * @param red The red color value (0-255).
+    * @param green The green color value (0-255).
+    * @param blue The blue color value (0-255).
+    */
+    void singlePixel(int pixel, int red, int green, int blue);
+
+    /**
+    * Displays a rainbow animation on the NeoPixel strip.
+    * This function cycles through the color wheel, creating a smooth rainbow animation
+    * across all NeoPixels. The animation consists of 1280 passes through the loop,
+    * with a short delay between updates to achieve a smooth transition.
+    *
+    * The animation uses the built-in `rainbow` function of the NeoPixel library, 
+    * which generates a sequence of colors based on the hue.
+    *
+    * Note: The brightness and gamma correction are set to default values.
+    */
+    void rainbowMode();
+  private:
+    AudioVisualNotifications& _parent;  // Reference to parent
+  };
+
+  Audio audio;
+  Visual visual;
 private:
   int _neoPixelPin;
   int _neoPixelCount;

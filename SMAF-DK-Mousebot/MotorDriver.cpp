@@ -49,21 +49,44 @@ bool MotorDriver::begin() {
 
 /**
 * Requests the state of the battery charger from the I2C slave device.
-* 
-* @return The charger state (0 for not connected, 1 for charging, 2 for complete, or 0 for error).
+*
+* This function communicates with the I2C slave device to retrieve the current
+* charger state. It returns an enumerated value representing the charger's
+* state or an error if communication fails.
+*
+* @return ChargerState::NotConnected if the charger is not connected,
+*         ChargerState::ChargingBattery if the battery is charging,
+*         ChargerState::BatteryCharged if the battery is fully charged, or
+*         ChargerState::Error if there is a communication failure or an unknown state.
 */
-uint8_t MotorDriver::getChargerState() {
+MotorDriver::ChargerState MotorDriver::getChargerState() {
   Wire.beginTransmission(deviceAddress);
-  Wire.write(0x01);                           // Command to request the charger state.
-  if (Wire.endTransmission() != 0) return 0;  // Return 0 on error.
+  Wire.write(0x01);  // Command to request the charger state.
 
-  delay(10);  // Small delay to ensure the request is processed.
+  // Check for I2C communication failure
+  if (Wire.endTransmission() != 0) {
+    return ChargerState::Error;  // Return a distinct error state
+  }
 
-  Wire.requestFrom(deviceAddress, (uint8_t)1);  // Request 1 byte from the slave.
-  if (Wire.available()) {
-    return Wire.read();
-  } else {
-    return 0;  // Return 0 on error.
+  delay(10);  // Small delay to ensure the request is processed
+
+  // Check if data is available
+  if (Wire.requestFrom(deviceAddress, (uint8_t)1) != 1) {
+    return ChargerState::Error;  // Return a distinct error state
+  }
+
+  uint8_t state = Wire.read();
+
+  // Map received state to ChargerState enum
+  switch (state) {
+    case 0xA0:
+      return ChargerState::NotConnected;
+    case 0xA1:
+      return ChargerState::Charging;
+    case 0xA2:
+      return ChargerState::ChargingComplete;
+    default:
+      return ChargerState::Error;  // Fallback for unknown states
   }
 }
 
@@ -90,24 +113,57 @@ bool MotorDriver::disableMotorDriver() {
 }
 
 /**
-* Checks if the motor driver is enabled on the I2C slave.
-* 
-* @return 1 if the motor driver is enabled, 2 if disabled, or 0 on failure.
+* Checks if the motor driver is enabled by communicating with the device via I2C.
+*
+* This function sends a command to the motor driver to request its current state
+* and processes the response. The response is mapped to the `MotorDriverState` enum
+* to indicate whether the motor driver is enabled, disabled, or if an error occurred.
+*
+* @return MotorDriverState - The current state of the motor driver:
+*         - `MotorDriverState::MotorDriverDisabled` if the motor driver is disabled.
+*         - `MotorDriverState::MotorDriverEnabled` if the motor driver is enabled.
+*         - `MotorDriverState::Error` if there is a communication failure or an unknown state is received.
 */
-uint8_t MotorDriver::isMotorDriverEnabled() {
-    Wire.beginTransmission(deviceAddress);
-    Wire.write(0x09); // Command to request motor driver enabled state.
-    if (Wire.endTransmission() != 0) return 0; // Return 0 on transmission error.
+MotorDriver::MotorDriverState MotorDriver::isMotorDriverEnabled() {
+  Wire.beginTransmission(deviceAddress);
+  Wire.write(0x09);  // Command to request the charger state.
 
-    delay(10); // Small delay to ensure the request is processed.
+  // Check for I2C communication failure.
+  if (Wire.endTransmission() != 0) {
+    return MotorDriverState::Error;  // Return a distinct error state.
+  }
 
-    Wire.requestFrom(deviceAddress, (uint8_t)1); // Request 1 byte from the slave.
-    if (Wire.available() == 1) {
-        uint8_t response = Wire.read();
-        return (response == 1 || response == 2) ? response : 0; // Validate response.
-    } else {
-        return 0; // Return 0 if no data is received.
-    }
+  delay(10);  // Small delay to ensure the request is processed.
+
+  // Check if data is available
+  if (Wire.requestFrom(deviceAddress, (uint8_t)1) != 1) {
+    return MotorDriverState::Error;  // Return a distinct error state.
+  }
+
+  uint8_t state = Wire.read();
+
+  // Map received state to ChargerState enum.
+  switch (state) {
+    case 0xB0:
+      return MotorDriverState::MotorDriverDisabled;
+    case 0xB1:
+      return MotorDriverState::MotorDriverEnabled;
+    default:
+      return MotorDriverState::Error;  // Fallback for unknown states.
+  }
+}
+
+/**
+* Sends a command to the I2C slave to initiate a motor test routine.
+*
+* This function triggers a predefined motor test sequence on the I2C slave device.
+*
+* @return True if the command was successfully sent to the slave device; false otherwise.
+*/
+bool MotorDriver::commitMotorTest() {
+  Wire.beginTransmission(deviceAddress);
+  Wire.write(0x80);                      // Command to disable the motor driver.
+  return (Wire.endTransmission() == 0);  // Return true on success.
 }
 
 /**
@@ -146,13 +202,13 @@ bool MotorDriver::setMotorB(int16_t motorB) {
 * @return True if the transmission was successful, false otherwise.
 */
 bool MotorDriver::setMotorValues(int16_t motorA, int16_t motorB) {
-    Wire.beginTransmission(deviceAddress);
-    Wire.write(0x08); // Command to set both motor values.
-    Wire.write((uint8_t)(motorA >> 8)); // High byte of motorA.
-    Wire.write((uint8_t)motorA);        // Low byte of motorA.
-    Wire.write((uint8_t)(motorB >> 8)); // High byte of motorB.
-    Wire.write((uint8_t)motorB);        // Low byte of motorB.
-    return (Wire.endTransmission() == 0); // Return true on success.
+  Wire.beginTransmission(deviceAddress);
+  Wire.write(0x08);                      // Command to set both motor values.
+  Wire.write((uint8_t)(motorA >> 8));    // High byte of motorA.
+  Wire.write((uint8_t)motorA);           // Low byte of motorA.
+  Wire.write((uint8_t)(motorB >> 8));    // High byte of motorB.
+  Wire.write((uint8_t)motorB);           // Low byte of motorB.
+  return (Wire.endTransmission() == 0);  // Return true on success.
 }
 
 /**
@@ -197,4 +253,28 @@ int16_t MotorDriver::getMotorBValue() {
   } else {
     return 0;  // Return 0 on error.
   }
+}
+
+/**
+* Enables the wheel cleaning mode by sending a command to the I2C slave.
+* This function sends a specific command to the motor driver to enable wheel cleaning mode.
+*
+* @return True if the I2C transmission was successful, false otherwise.
+*/
+bool MotorDriver::enableWheelCleanMode() {
+  Wire.beginTransmission(deviceAddress);
+  Wire.write(0x81);                      // Command to enable the motor driver.
+  return (Wire.endTransmission() == 0);  // Return true on success.
+}
+
+/**
+* Disables the wheel cleaning mode by sending a command to the I2C slave.
+* This function sends a specific command to the motor driver to disable wheel cleaning mode.
+*
+* @return True if the I2C transmission was successful, false otherwise.
+*/
+bool MotorDriver::disableWheelCleanMode() {
+  Wire.beginTransmission(deviceAddress);
+  Wire.write(0x82);                      // Command to enable the motor driver.
+  return (Wire.endTransmission() == 0);  // Return true on success.
 }

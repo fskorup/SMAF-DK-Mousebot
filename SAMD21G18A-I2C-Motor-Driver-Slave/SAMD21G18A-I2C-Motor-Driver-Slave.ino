@@ -25,26 +25,49 @@
 
 #include <Wire.h>
 
-// Pin assignments for motor control and charger status.
-const int leftMotorA = 15;        // Pin for left motor A.
-const int leftMotorB = 16;        // Pin for left motor B.
-const int rightMotorA = 17;       // Pin for right motor A.
-const int rightMotorB = 18;       // Pin for right motor B.
-const int motorDriverEnable = 4;  // Pin to enable/disable motor driver.
-const int chargerStatusPinA = 5;  // Charger status pin A (stat1).
-const int chargerStatusPinB = 6;  // Charger status pin B (stat2).
+// Pin assignments for motor A control.
+const struct {
+  const int motorInputA = 15;
+  const int motorInputB = 16;
+} MotorAPins;
+
+// Pin assignments for motor B control.
+const struct {
+  const int motorInputA = 18;
+  const int motorInputB = 17;
+} MotorBPins;
+
+// Pin assignments for charger status.
+const struct {
+  const int chargerStatusPinA = 6;
+  const int chargerStatusPinB = 5;
+} ChargerPins;
+
+// Pin assignments for any other IO.
+const struct {
+  const int motorDriverEnable = 4;
+} OutputPins;
 
 // Variables to store motor PWM values.
-volatile int16_t motorA = 0;  // PWM value for motor A.
-volatile int16_t motorB = 0;  // PWM value for motor B.
+volatile int16_t motorA = 0;           // PWM value for motor A.
+volatile int16_t motorB = 0;           // PWM value for motor B.
+volatile uint8_t lastRequestType = 0;  // Stores the last request type received from the master.
 
-// Charger state constants.
-const uint8_t NOT_CONNECTED = 1;      // Charger not connected.
-const uint8_t CHARGING = 2;           // Charger is charging.
-const uint8_t CHARGING_COMPLETE = 3;  // Charger has completed charging.
+// Represents the state of the battery charger.
+enum ChargerState {
+  NotConnected = 0xA0,     // Charger not connected.
+  Charging = 0xA1,         // Charger is charging.
+  ChargingComplete = 0xA2  // Charger has completed charging.
+};
 
-volatile uint8_t chargerState = NOT_CONNECTED;  // Variable to hold the current charger state.
-volatile uint8_t lastRequestType = 0;           // Stores the last request type received from the master.
+// Represents the state of the motor driver.
+enum MotorDriverState {
+  MotorDriverDisabled = 0xB0,  // Motor driver is disabled.
+  MotorDriverEnabled = 0xB1    // Motor driver is enabled.
+};
+
+volatile ChargerState chargerState = NotConnected;                 // Variable to hold the current charger state.
+volatile MotorDriverState motorDriverState = MotorDriverDisabled;  // Variable to hold the current charger state.
 
 void setup() {
   Wire.begin(0x68);              // Initialize I2C as slave with address 0x68.
@@ -52,28 +75,81 @@ void setup() {
   Wire.onRequest(requestEvent);  // Register event handler for sending data.
 
   // Pin mode definitions.
-  pinMode(leftMotorA, OUTPUT);
-  pinMode(leftMotorB, OUTPUT);
-  pinMode(rightMotorA, OUTPUT);
-  pinMode(rightMotorB, OUTPUT);
-  pinMode(motorDriverEnable, OUTPUT);
-  pinMode(chargerStatusPinA, INPUT);
-  pinMode(chargerStatusPinB, INPUT);
+  pinMode(MotorAPins.motorInputA, OUTPUT);
+  pinMode(MotorAPins.motorInputB, OUTPUT);
+  pinMode(MotorBPins.motorInputA, OUTPUT);
+  pinMode(MotorBPins.motorInputB, OUTPUT);
+  pinMode(OutputPins.motorDriverEnable, OUTPUT);
+  pinMode(ChargerPins.chargerStatusPinA, INPUT);
+  pinMode(ChargerPins.chargerStatusPinB, INPUT);
+
+  // Disable motor driver and set motor PWM values to zero on startup.
+  digitalWrite(OutputPins.motorDriverEnable, LOW);
+  motorA = 0;
+  motorB = 0;
 }
 
 void loop() {
-  // Set charger state.
-  if (digitalRead(chargerStatusPinA) == HIGH && digitalRead(chargerStatusPinB) == HIGH) {
-    chargerState = NOT_CONNECTED;
-  } else if (digitalRead(chargerStatusPinA) == LOW && digitalRead(chargerStatusPinB) == HIGH) {
-    chargerState = CHARGING;
-  } else if (digitalRead(chargerStatusPinA) == HIGH && digitalRead(chargerStatusPinB) == LOW) {
-    chargerState = CHARGING_COMPLETE;
+  // Update motor driver state by reading the motor driver enable pin logic.
+  noInterrupts();  // Protect shared variables during access.
+  uint8_t motorDriverEnableStatus = digitalRead(OutputPins.motorDriverEnable);
+  interrupts();
+
+  // Determine charger state based on pin readings.
+  switch (motorDriverEnableStatus) {
+    case 0:
+      motorDriverState = MotorDriverDisabled;
+      break;
+    case 1:
+      motorDriverState = MotorDriverEnabled;
+      break;
+    default:
+      motorDriverState = MotorDriverDisabled;  // Fallback case.
+      break;
   }
 
-  // Control motors.
-  controlMotorA(motorA);
-  controlMotorB(motorB);
+  // Update charger state by reading the charger status pins.
+  noInterrupts();  // Protect shared variables during access.
+  uint8_t chargerStatusA = digitalRead(ChargerPins.chargerStatusPinA);
+  uint8_t chargerStatusB = digitalRead(ChargerPins.chargerStatusPinB);
+  interrupts();
+
+  // Determine charger state based on pin readings.
+  switch ((chargerStatusA << 1) | chargerStatusB) {
+    case 0b11:
+      chargerState = NotConnected;
+      break;
+    case 0b01:
+      chargerState = Charging;
+      break;
+    case 0b10:
+      chargerState = ChargingComplete;
+      break;
+    default:
+      chargerState = NotConnected;  // Fallback case.
+      break;
+  }
+
+  // Handle motor control logic by checking if values have changed.
+  static int16_t lastMotorA = 0;  // Store last known values for Motor A.
+  static int16_t lastMotorB = 0;  // Store last known values for Motor B.
+
+  noInterrupts();  // Protect shared variables during access.
+  int16_t motorALocal = motorA;
+  int16_t motorBLocal = motorB;
+  interrupts();
+
+  // Update Motor A if value has changed.
+  if (motorALocal != lastMotorA) {
+    controlMotorA(motorALocal);
+    lastMotorA = motorALocal;  // Save new state.
+  }
+
+  // Update Motor B if value has changed.
+  if (motorBLocal != lastMotorB) {
+    controlMotorB(motorBLocal);
+    lastMotorB = motorBLocal;  // Save new state.
+  }
 }
 
 /**
@@ -91,27 +167,40 @@ void receiveEvent(int numBytes) {
   lastRequestType = command;
 
   switch (command) {
-    case 0x02:  // Command to enable the motor driver.
-      digitalWrite(motorDriverEnable, HIGH);
+    case 0x02:  // Enable the motor driver.
+      digitalWrite(OutputPins.motorDriverEnable, HIGH);
       break;
-    case 0x03:  // Command to disable the motor driver.
-      digitalWrite(motorDriverEnable, LOW);
+    case 0x03:  // Disable the motor driver.
+      digitalWrite(OutputPins.motorDriverEnable, LOW);
+      motorA = 0;
+      motorB = 0;
       break;
-    case 0x04:  // Command to set motor A PWM value.
-      if (numBytes >= 3) {
-        motorA = (Wire.read() << 8) | Wire.read();  // Combine high and low bytes for motorA.
+    case 0x04:  // Set motor A PWM value.
+      if (numBytes >= 3 && Wire.available() >= 2) {
+        motorA = (Wire.read() << 8) | Wire.read();
       }
       break;
-    case 0x05:  // Command to set motor B PWM value.
-      if (numBytes >= 3) {
-        motorB = (Wire.read() << 8) | Wire.read();  // Combine high and low bytes for motorB.
+    case 0x05:  // Set motor B PWM value.
+      if (numBytes >= 3 && Wire.available() >= 2) {
+        motorB = (Wire.read() << 8) | Wire.read();
       }
       break;
-    case 0x08:  // Command to set both motor A and motor B PWM values.
-      if (numBytes >= 5) {
-        motorA = (Wire.read() << 8) | Wire.read();  // Combine high and low bytes for motorA.
-        motorB = (Wire.read() << 8) | Wire.read();  // Combine high and low bytes for motorB.
+    case 0x08:  // Set both motor A and motor B PWM values.
+      if (numBytes >= 5 && Wire.available() >= 4) {
+        motorA = (Wire.read() << 8) | Wire.read();
+        motorB = (Wire.read() << 8) | Wire.read();
       }
+      break;
+    case 0x80:  // Test motor operation.
+      testMotors();
+      break;
+    case 0x81:  // Wheel clean mode ENABLED.
+      motorA = 255;
+      motorB = 255;
+      break;
+    case 0x82:  // Wheel clean mode DISABLED.
+      motorA = 0;
+      motorB = 0;
       break;
     default:
       break;  // Unknown command, do nothing.
@@ -138,7 +227,7 @@ void requestEvent() {
       Wire.write((uint8_t)motorB);         // Send low byte.
       break;
     case 0x09:  // Request for motor driver enabled state.
-      Wire.write(digitalRead(motorDriverEnable) == HIGH ? 1 : 2);
+      Wire.write(motorDriverState);
       break;
     default:
       Wire.write(0);  // Send 0 for unknown requests.
@@ -156,16 +245,18 @@ void requestEvent() {
 * @param value The PWM value to control the motor (positive for forward, negative for reverse).
 */
 void controlMotorA(int value) {
-  int speed = map(abs(value), 0, 255, 0, 255);
+  // int speed = map(abs(value), 0, 255, 0, 255);
+  int speed = abs(value);  // Direct mapping for 0-255 range.
+
   if (value > 0) {
-    analogWrite(rightMotorA, speed);
-    analogWrite(rightMotorB, 0);
+    analogWrite(MotorAPins.motorInputA, speed);
+    analogWrite(MotorAPins.motorInputB, 0);
   } else if (value < 0) {
-    analogWrite(rightMotorA, 0);
-    analogWrite(rightMotorB, speed);
+    analogWrite(MotorAPins.motorInputA, 0);
+    analogWrite(MotorAPins.motorInputB, speed);
   } else {
-    analogWrite(rightMotorA, 0);
-    analogWrite(rightMotorB, 0);
+    analogWrite(MotorAPins.motorInputA, 0);
+    analogWrite(MotorAPins.motorInputB, 0);
   }
 }
 
@@ -179,15 +270,50 @@ void controlMotorA(int value) {
 * @param value The PWM value to control the motor (positive for forward, negative for reverse).
 */
 void controlMotorB(int value) {
-  int speed = map(abs(value), 0, 255, 0, 255);
+  // int speed = map(abs(value), 0, 255, 0, 255);
+  int speed = abs(value);  // Direct mapping for 0-255 range.
+
   if (value > 0) {
-    analogWrite(leftMotorA, speed);
-    analogWrite(leftMotorB, 0);
+    analogWrite(MotorBPins.motorInputA, speed);
+    analogWrite(MotorBPins.motorInputB, 0);
   } else if (value < 0) {
-    analogWrite(leftMotorA, 0);
-    analogWrite(leftMotorB, speed);
+    analogWrite(MotorBPins.motorInputA, 0);
+    analogWrite(MotorBPins.motorInputB, speed);
   } else {
-    analogWrite(leftMotorA, 0);
-    analogWrite(leftMotorB, 0);
+    analogWrite(MotorBPins.motorInputA, 0);
+    analogWrite(MotorBPins.motorInputB, 0);
+  }
+}
+
+/**
+* Performs a motor test routine.
+*/
+void testMotors() {
+  const int16_t MOTOR_TEST_SPEED = 80;  // Motor test speed.
+  const int MOTOR_TEST_DELAY = 80;      // Delay in milliseconds for motor testing steps.
+
+  if (digitalRead(ChargerPins.chargerStatusPinA) == HIGH && digitalRead(ChargerPins.chargerStatusPinB) == HIGH) {
+    digitalWrite(OutputPins.motorDriverEnable, HIGH);
+    controlMotorA(-MOTOR_TEST_SPEED);
+    controlMotorB(MOTOR_TEST_SPEED);
+    delay(MOTOR_TEST_DELAY);
+    controlMotorA(MOTOR_TEST_SPEED);
+    controlMotorB(-MOTOR_TEST_SPEED);
+    delay(MOTOR_TEST_DELAY);
+    controlMotorA(-MOTOR_TEST_SPEED);
+    controlMotorB(MOTOR_TEST_SPEED);
+    delay(MOTOR_TEST_DELAY);
+    controlMotorA(MOTOR_TEST_SPEED);
+    controlMotorB(-MOTOR_TEST_SPEED);
+    delay(MOTOR_TEST_DELAY);
+    controlMotorA(-MOTOR_TEST_SPEED);
+    controlMotorB(MOTOR_TEST_SPEED);
+    delay(MOTOR_TEST_DELAY);
+    controlMotorA(MOTOR_TEST_SPEED);
+    controlMotorB(-MOTOR_TEST_SPEED);
+    delay(MOTOR_TEST_DELAY);
+    controlMotorA(0);
+    controlMotorB(0);
+    digitalWrite(OutputPins.motorDriverEnable, LOW);
   }
 }

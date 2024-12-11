@@ -46,103 +46,133 @@ AudioVisualNotifications::AudioVisualNotifications(int neoPixelPin, int neoPixel
     _neoPixelCount(neoPixelCount),
     _neoPixelBrightness(neoPixelBrightness),
     _speakerPin(speakerPin),
-    _neoPixel(neoPixelCount, neoPixelPin, NEO_GRB + NEO_KHZ800) {
-}
-
-/**
-* Initializes the visual notifications by setting up the NeoPixel strip.
-* This function must be called to prepare the NeoPixel for use. 
-*/
-void AudioVisualNotifications::initializeVisualNotifications() {
-  _neoPixel.begin();                             // INITIALIZE NeoPixel strip object (REQUIRED).
-  _neoPixel.setBrightness(_neoPixelBrightness);  // Set BRIGHTNESS to about 1/5 (max = 255).
-}
-
-/**
-* Clears all visual notifications on the NeoPixel strip.
-* This function resets the NeoPixel strip to its default state.
-*/
-void AudioVisualNotifications::clearAllVisualNotifications() {
-  _neoPixel.clear();
-  _neoPixel.show();
+    _neoPixel(neoPixelCount, neoPixelPin, NEO_GRB + NEO_KHZ800),
+    audio(*this),
+    visual(*this) {
 }
 
 /**
 * Plays an introductory audio notification sequence through the speaker.
 * This function produces a series of tones to signal the start of notifications.
 */
-void AudioVisualNotifications::introAudioNotification() {
-  tone(_speakerPin, NOTE_E6);
+void AudioVisualNotifications::Audio::introMelody() {
+  tone(_parent._speakerPin, NOTE_E6);
   delay(120);
-  noTone(_speakerPin);
+  noTone(_parent._speakerPin);
 
-  tone(_speakerPin, NOTE_F6);
+  tone(_parent._speakerPin, NOTE_F6);
   delay(120);
-  noTone(_speakerPin);
+  noTone(_parent._speakerPin);
 
-  tone(_speakerPin, NOTE_G6);
+  tone(_parent._speakerPin, NOTE_G6);
   delay(320);
-  noTone(_speakerPin);
+  noTone(_parent._speakerPin);
 }
 
 /**
 * Plays a maintenance audio notification sequence through the speaker.
 * This function produces a series of tones to signal maintenance notifications.
 */
-void AudioVisualNotifications::maintenanceAudioNotification() {
+void AudioVisualNotifications::Audio::maintenanceMelody() {
   // First part.
-  tone(_speakerPin, NOTE_E6);
+  tone(_parent._speakerPin, NOTE_E6);
   delay(120);
-  noTone(_speakerPin);
+  noTone(_parent._speakerPin);
 
   delay(80);
 
-  tone(_speakerPin, NOTE_E6);
+  tone(_parent._speakerPin, NOTE_E6);
   delay(120);
-  noTone(_speakerPin);
+  noTone(_parent._speakerPin);
 
   delay(80);
 
-  tone(_speakerPin, NOTE_F6);
+  tone(_parent._speakerPin, NOTE_F6);
   delay(120);
-  noTone(_speakerPin);
+  noTone(_parent._speakerPin);
 
   delay(80);
 
-  tone(_speakerPin, NOTE_G6);
+  tone(_parent._speakerPin, NOTE_G6);
   delay(280);
-  noTone(_speakerPin);
+  noTone(_parent._speakerPin);
 
   // Second part.
-  tone(_speakerPin, NOTE_E6);
+  tone(_parent._speakerPin, NOTE_E6);
   delay(120);
-  noTone(_speakerPin);
+  noTone(_parent._speakerPin);
 
-  tone(_speakerPin, NOTE_F6);
+  tone(_parent._speakerPin, NOTE_F6);
   delay(120);
-  noTone(_speakerPin);
+  noTone(_parent._speakerPin);
 
-  tone(_speakerPin, NOTE_G6);
+  tone(_parent._speakerPin, NOTE_G6);
   delay(320);
-  noTone(_speakerPin);
+  noTone(_parent._speakerPin);
+}
+
+/**
+* Produces a single short beep using the speaker.
+* The tone is played on the speaker connected to the specified pin.
+*/
+void AudioVisualNotifications::Audio::beep() {
+  tone(_parent._speakerPin, NOTE_E6);
+  delay(120);
+  noTone(_parent._speakerPin);
+}
+
+/**
+* Produces a double beep using the speaker.
+* This function generates two consecutive tones, 
+* each lasting 120 milliseconds, with an 80-millisecond pause between them.
+* The tones are played on the speaker connected to the specified pin.
+*/
+void AudioVisualNotifications::Audio::doubleBeep() {
+  tone(_parent._speakerPin, NOTE_E6);
+  delay(120);
+  noTone(_parent._speakerPin);
+
+  delay(80);
+
+  tone(_parent._speakerPin, NOTE_E6);
+  delay(120);
+  noTone(_parent._speakerPin);
+}
+
+/**
+* Initializes the visual notifications by setting up the NeoPixel strip.
+* This function must be called to prepare the NeoPixel for use. 
+*/
+void AudioVisualNotifications::Visual::initializePixels() {
+  _parent._neoPixel.begin();                                     // INITIALIZE NeoPixel strip object (REQUIRED).
+  _parent._neoPixel.setBrightness(_parent._neoPixelBrightness);  // Set BRIGHTNESS to about 1/5 (max = 255).
+}
+
+/**
+* Clears all visual notifications on the NeoPixel strip.
+* This function resets the NeoPixel strip to its default state.
+*/
+void AudioVisualNotifications::Visual::clearAllPixels() {
+  _parent._neoPixel.clear();
+  _parent._neoPixel.show();
 }
 
 /**
 * Displays a visual notification indicating that the system is not ready.
 * This function uses the NeoPixel strip to show a red color on one pixel while turning off another.
 */
-void AudioVisualNotifications::notReadyVisualNotification() {
+void AudioVisualNotifications::Visual::notReadyMode() {
   uint32_t interval = 240;
 
-  _neoPixel.setPixelColor(0, _neoPixel.Color(255, 0, 0));
-  _neoPixel.setPixelColor(1, _neoPixel.Color(0, 0, 0));
-  _neoPixel.show();
+  _parent._neoPixel.setPixelColor(0, _parent._neoPixel.Color(255, 0, 0));
+  _parent._neoPixel.setPixelColor(1, _parent._neoPixel.Color(0, 0, 0));
+  _parent._neoPixel.show();
 
   delay(interval);
 
-  _neoPixel.setPixelColor(0, _neoPixel.Color(0, 0, 0));
-  _neoPixel.setPixelColor(1, _neoPixel.Color(255, 0, 0));
-  _neoPixel.show();
+  _parent._neoPixel.setPixelColor(0, _parent._neoPixel.Color(0, 0, 0));
+  _parent._neoPixel.setPixelColor(1, _parent._neoPixel.Color(255, 0, 0));
+  _parent._neoPixel.show();
 
   // clearNeoPixel();
   delay(interval);
@@ -152,18 +182,18 @@ void AudioVisualNotifications::notReadyVisualNotification() {
 * Displays a visual notification indicating that the system is ready to send data.
 * This function blinks two NeoPixels in green for a specified number of times to signal readiness.
 */
-void AudioVisualNotifications::readyToSendVisualNotification() {
+void AudioVisualNotifications::Visual::readyToSendMode() {
   uint32_t delayBeforeNextBurst = 1200;
   int blinkCount = 4;
 
   // Loop through the specified number of blinks in one burst.
   for (int i = 0; i < blinkCount; ++i) {
-    _neoPixel.setPixelColor(0, _neoPixel.Color(0, 255, 0));
-    _neoPixel.setPixelColor(1, _neoPixel.Color(0, 255, 0));
-    _neoPixel.show();
+    _parent._neoPixel.setPixelColor(0, _parent._neoPixel.Color(0, 255, 0));
+    _parent._neoPixel.setPixelColor(1, _parent._neoPixel.Color(0, 255, 0));
+    _parent._neoPixel.show();
 
     delay(40);
-    clearAllVisualNotifications();
+    clearAllPixels();
     delay(40);
   }
 
@@ -175,18 +205,18 @@ void AudioVisualNotifications::readyToSendVisualNotification() {
 * Displays a visual notification indicating that the system is waiting for a GNSS fix.
 * This function uses the NeoPixel strip to show a blue color on one pixel while turning off another.
 */
-void AudioVisualNotifications::waitingGnssFixVisualNotification() {
+void AudioVisualNotifications::Visual::waitingGnssFixMode() {
   uint32_t interval = 240;
 
-  _neoPixel.setPixelColor(0, _neoPixel.Color(0, 0, 255));
-  _neoPixel.setPixelColor(1, _neoPixel.Color(0, 0, 0));
-  _neoPixel.show();
+  _parent._neoPixel.setPixelColor(0, _parent._neoPixel.Color(0, 0, 255));
+  _parent._neoPixel.setPixelColor(1, _parent._neoPixel.Color(0, 0, 0));
+  _parent._neoPixel.show();
 
   delay(interval);
 
-  _neoPixel.setPixelColor(0, _neoPixel.Color(0, 0, 0));
-  _neoPixel.setPixelColor(1, _neoPixel.Color(0, 0, 255));
-  _neoPixel.show();
+  _parent._neoPixel.setPixelColor(0, _parent._neoPixel.Color(0, 0, 0));
+  _parent._neoPixel.setPixelColor(1, _parent._neoPixel.Color(0, 0, 255));
+  _parent._neoPixel.show();
 
   // clearNeoPixel();
   delay(interval);
@@ -196,18 +226,18 @@ void AudioVisualNotifications::waitingGnssFixVisualNotification() {
 * Displays a visual notification indicating that the system is loading.
 * This function uses the NeoPixel strip to show a magenta color on one pixel while turning off another.
 */
-void AudioVisualNotifications::loadingVisualNotification() {
+void AudioVisualNotifications::Visual::loadingMode() {
   uint32_t interval = 240;
 
-  _neoPixel.setPixelColor(0, _neoPixel.Color(255, 0, 255));
-  _neoPixel.setPixelColor(1, _neoPixel.Color(0, 0, 0));
-  _neoPixel.show();
+  _parent._neoPixel.setPixelColor(0, _parent._neoPixel.Color(255, 0, 255));
+  _parent._neoPixel.setPixelColor(1, _parent._neoPixel.Color(0, 0, 0));
+  _parent._neoPixel.show();
 
   delay(interval);
 
-  _neoPixel.setPixelColor(0, _neoPixel.Color(0, 0, 0));
-  _neoPixel.setPixelColor(1, _neoPixel.Color(255, 0, 255));
-  _neoPixel.show();
+  _parent._neoPixel.setPixelColor(0, _parent._neoPixel.Color(0, 0, 0));
+  _parent._neoPixel.setPixelColor(1, _parent._neoPixel.Color(255, 0, 255));
+  _parent._neoPixel.show();
 
   // clearNeoPixel();
   delay(interval);
@@ -217,15 +247,15 @@ void AudioVisualNotifications::loadingVisualNotification() {
 * Displays a visual notification indicating that maintenance is required.
 * This function uses the NeoPixel strip to show a magenta color on two pixels briefly.
 */
-void AudioVisualNotifications::maintenanceVisualNotification() {
+void AudioVisualNotifications::Visual::maintenanceMode() {
   uint32_t interval = 240;
 
-  _neoPixel.setPixelColor(0, _neoPixel.Color(255, 0, 255));
-  _neoPixel.setPixelColor(1, _neoPixel.Color(255, 0, 255));
-  _neoPixel.show();
+  _parent._neoPixel.setPixelColor(0, _parent._neoPixel.Color(255, 0, 255));
+  _parent._neoPixel.setPixelColor(1, _parent._neoPixel.Color(255, 0, 255));
+  _parent._neoPixel.show();
 
   delay(interval);
-  clearAllVisualNotifications();
+  clearAllPixels();
   delay(interval);
 }
 
@@ -238,7 +268,26 @@ void AudioVisualNotifications::maintenanceVisualNotification() {
 * @param green The green color value (0-255).
 * @param blue The blue color value (0-255).
 */
-void AudioVisualNotifications::initializePixel(int pixel, int red, int green, int blue) {
-  _neoPixel.setPixelColor(pixel, _neoPixel.Color(red, green, blue));
-  _neoPixel.show();
+void AudioVisualNotifications::Visual::singlePixel(int pixel, int red, int green, int blue) {
+  _parent._neoPixel.setPixelColor(pixel, _parent._neoPixel.Color(red, green, blue));
+  _parent._neoPixel.show();
+}
+
+/**
+* Displays a rainbow animation on the NeoPixel strip.
+* This function cycles through the color wheel, creating a smooth rainbow animation
+* across all NeoPixels. The animation consists of 1280 passes through the loop,
+* with a short delay between updates to achieve a smooth transition.
+*
+* The animation uses the built-in `rainbow` function of the NeoPixel library, 
+* which generates a sequence of colors based on the hue.
+*
+* Note: The brightness and gamma correction are set to default values.
+*/
+void AudioVisualNotifications::Visual::rainbowMode() {
+  for (long firstPixelHue = 0; firstPixelHue < 5 * 65536; firstPixelHue += 256) {
+    _parent._neoPixel.rainbow(firstPixelHue);
+    _parent._neoPixel.show();
+    delay(12);
+  }
 }

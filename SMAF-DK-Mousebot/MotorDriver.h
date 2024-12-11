@@ -36,6 +36,26 @@
 class MotorDriver {
 public:
   /**
+  * Represents the state of the battery charger.
+  *
+  * This enum defines the possible states of the charger, including whether it is 
+  * connected, charging, fully charged, or an error occurred.
+  */
+  enum class ChargerState : uint8_t {
+    NotConnected = 0xA0,
+    Charging = 0xA1,
+    ChargingComplete = 0xA2,
+    Error = 0
+  };
+
+  // Represents the state of the motor driver.
+  enum class MotorDriverState : uint8_t {
+    MotorDriverDisabled = 0xB0,
+    MotorDriverEnabled = 0xB1,
+    Error = 0
+  };
+
+  /**
   * Constructor for the MotorDriver class.
   * 
   * @param address The I2C address of the device.
@@ -51,10 +71,17 @@ public:
 
   /**
   * Requests the state of the battery charger from the I2C slave device.
-  * 
-  * @return The charger state (0 for not connected, 1 for charging, 2 for complete, or 0 for error).
+  *
+  * This function communicates with the I2C slave device to retrieve the current
+  * charger state. It returns an enumerated value representing the charger's
+  * state or an error if communication fails.
+  *
+  * @return ChargerState::NotConnected if the charger is not connected,
+  *         ChargerState::ChargingBattery if the battery is charging,
+  *         ChargerState::BatteryCharged if the battery is fully charged, or
+  *         ChargerState::Error if there is a communication failure or an unknown state.
   */
-  uint8_t getChargerState();
+  ChargerState getChargerState();
 
   /**
   * Sends a command to the I2C slave to enable the motor driver.
@@ -71,11 +98,27 @@ public:
   bool disableMotorDriver();
 
   /**
-  * Checks if the motor driver is enabled on the I2C slave.
-  * 
-  * @return 1 if the motor driver is enabled, 2 if disabled, or 0 on failure.
+  * Checks if the motor driver is enabled by communicating with the device via I2C.
+  *
+  * This function sends a command to the motor driver to request its current state
+  * and processes the response. The response is mapped to the `MotorDriverState` enum
+  * to indicate whether the motor driver is enabled, disabled, or if an error occurred.
+  *
+  * @return MotorDriverState - The current state of the motor driver:
+  *         - `MotorDriverState::MotorDriverDisabled` if the motor driver is disabled.
+  *         - `MotorDriverState::MotorDriverEnabled` if the motor driver is enabled.
+  *         - `MotorDriverState::Error` if there is a communication failure or an unknown state is received.
   */
-  uint8_t isMotorDriverEnabled();
+  MotorDriverState isMotorDriverEnabled();
+
+  /**
+  * Sends a command to the I2C slave to initiate a motor test routine.
+  *
+  * This function triggers a predefined motor test sequence on the I2C slave device.
+  *
+  * @return True if the command was successfully sent to the slave device; false otherwise.
+  */
+  bool commitMotorTest();
 
   /**
   * Sends the PWM value for motor A to the I2C slave.
@@ -116,6 +159,21 @@ public:
   */
   int16_t getMotorBValue();
 
+  /**
+  * Enables the wheel cleaning mode by sending a command to the I2C slave.
+  * This function sends a specific command to the motor driver to enable wheel cleaning mode.
+  *
+  * @return True if the I2C transmission was successful, false otherwise.
+  */
+  bool enableWheelCleanMode();
+
+  /**
+  * Disables the wheel cleaning mode by sending a command to the I2C slave.
+  * This function sends a specific command to the motor driver to disable wheel cleaning mode.
+  *
+  * @return True if the I2C transmission was successful, false otherwise.
+  */
+  bool disableWheelCleanMode();
 private:
   uint8_t deviceAddress;  // The I2C address of the slave device.
 };

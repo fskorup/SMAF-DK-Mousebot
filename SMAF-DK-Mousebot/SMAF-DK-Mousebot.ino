@@ -31,17 +31,46 @@
 #include "AudioVisualNotifications.h"
 #include "MotorDriver.h"
 #include "SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library.h"
+#include "SparkFun_BMI270_Arduino_Library.h"
 
-const int sda = 1;       // IO01, SDA
-const int scl = 2;       // IO02, SCL
-const int neoPixel = 4;  // IO04, ADC1-CH0
-const int speaker = 5;   // IO05, ADC1-CH4
+// Pin assignments for I2C.
+const struct {
+  const int SDA = 1;  // IO01, SDA
+  const int SCL = 2;  // IO02, SCL
+} I2CPins;
+
+// Pin assignments for outputs.
+const struct {
+  const int NeoPixel = 4;  // IO04, ADC1-CH0
+  const int Speaker = 5;   // IO05, ADC1-CH4
+} OutputPins;
+
+// Pin assignments for inputs.
+const struct {
+  const int UserButton = 6;  // IO06
+} InputPins;
+
+// Enum to represent different device statuses.
+enum BotStatusEnum : byte {
+  NONE,
+  NOT_READY,
+  CHARGING,
+  CHARGING_COMPLETE,
+  READY_TO_DRIVE,
+  WHEEL_CLEAN_MODE
+};
+
+// Variable to store the current device status.
+BotStatusEnum botStatus = NONE;  // Initial state is set to NOT_READY.
 
 AsyncWebServer server(80);                 // Create AsyncWebServer object on port 80.
 AsyncWebSocket webSocket("/ws");           // Create a WebSocket object.
 const char* apName = "SMAF-DK-Mouse-Bot";  // AP name.
 const char* apPassword = "12345678";       // AP password.
+const char* ssid = "***";                  // Home network AP name.
+const char* password = "***";              // Home network AP password.
 
+// I2C devices definitions.
 SFE_MAX1704X fuelGauge(MAX1704X_MAX17048);  // Create a MAX17048.
 MotorDriver motorDriver(0x68);              // Create a MotorDriver. Replace 0x68 with your slave device's address.
 
@@ -54,7 +83,7 @@ MotorDriver motorDriver(0x68);              // Create a MotorDriver. Replace 0x6
 * @param neoPixelBrightness The brightness level of the NeoPixels (0-255).
 * @param speakerPin The GPIO pin connected to the speaker.
 */
-AudioVisualNotifications notifications(neoPixel, 2, 40, speaker);
+AudioVisualNotifications notifications(OutputPins.NeoPixel, 2, 40, OutputPins.Speaker);
 
 // Define constants for ESP32 core numbers.
 #define ESP32_CORE_PRIMARY 0    // Numeric value representing the primary core.
@@ -63,19 +92,12 @@ AudioVisualNotifications notifications(neoPixel, 2, 40, speaker);
 // Function prototype for the DeviceStatusThread function.
 void DeviceStatusThread(void* pvParameters);
 
-/**
-* Enum representing the different statuses of battery charging.
-* This enumeration indicates the current state of the battery charge.
-*/
-enum BatteryChargeStatusEnum : byte {
-  NONE,      // Charger not connected.
-  CHARGING,  // Charger connected and charging battery.
-  CHARGED,   // Charger connected and battery is charged.
-};
+// Enum variables.
+MotorDriver::ChargerState chargerState = MotorDriver::ChargerState::NotConnected;                     // Variable to store the current charger status.
+MotorDriver::MotorDriverState motorDriverState = MotorDriver::MotorDriverState::MotorDriverDisabled;  // Variable to store the current motor driver status.
 
-float batteryVoltage = 0.0;                          // Variable to keep track of battery voltage.
-int batterySoC = 0;                                  // Variable to keep track of battery state-of-charge (SOC).
-BatteryChargeStatusEnum batteryChargeStatus = NONE;  // Variable to store the current charge status.
+int lastUserButtonState = HIGH;  // Previous button state.
+bool wheelCleanMode = false;     // Variable to keep track wheel clean mode.
 
 // Function to handle 404 errors
 void notFound(AsyncWebServerRequest* request) {
@@ -87,6 +109,15 @@ void notFound(AsyncWebServerRequest* request) {
 * It is executed once when the Arduino board starts or is reset.
 */
 void setup() {
+  Serial.begin(115200);
+
+  // Initialize visualization library neo pixels.
+  notifications.visual.initializePixels();
+  notifications.visual.clearAllPixels();
+
+  // Play intro melody on speaker.
+  notifications.audio.introMelody();
+
   // Create a new task (DeviceStatusThread) and assign it to the primary core (ESP32_CORE_PRIMARY).
   xTaskCreatePinnedToCore(
     DeviceStatusThread,    // Function to implement the task.
@@ -98,69 +129,55 @@ void setup() {
     ESP32_CORE_SECONDARY   // Core where the task should run.
   );
 
-  Serial.begin(115200);
-
-  // Initialize visualization library neo pixels.
-  notifications.initializeVisualNotifications();
-  notifications.clearAllVisualNotifications();
-  notifications.initializePixel(0, 0, 0, 255);  // Turn blue RGB led on.
-  notifications.initializePixel(1, 0, 0, 255);  // Turn blue RGB led on.
-
-  // Play intro melody on speaker.
-  notifications.introAudioNotification();
-
-  // Give ESP32 core some time to initialize all.
-  delay(2400);
+  // Set the pin mode for the user button to INPUT.
+  pinMode(InputPins.UserButton, INPUT);
 
   // Set Wire library custom I2C pins.
   // Example usage:
   // Wire.setPins(SDA_PIN_NUMBER, SCL_PIN_NUMBER);
-  Wire.setPins(sda, scl);
+  Wire.setPins(I2CPins.SDA, I2CPins.SCL);
   Wire.begin();
 
   // Initialize the fuel gauge.
-  if (fuelGauge.begin() == false) {
+  while (fuelGauge.begin() == false) {
     debug(ERR, "Fuel gauge not found on I2C bus. Check wiring.");
-    notifications.initializePixel(0, 255, 0, 0);  // Turn blue RGB led on.
-    notifications.initializePixel(1, 255, 0, 0);  // Turn blue RGB led on.
-    while (true) {}
-  }
-
-  // Initialize the motor driver.
-  if (motorDriver.begin() == false) {
-    debug(ERR, "Motor driver not found on I2C bus. Check wiring.");
-    notifications.initializePixel(0, 255, 0, 0);  // Turn blue RGB led on.
-    notifications.initializePixel(1, 255, 0, 0);  // Turn blue RGB led on.
-    while (true) {}
-  }
-
-  // Check motors.
-  if (motorDriver.getChargerState() == 1) {
-    int value = 80;
-
-    motorDriver.enableMotorDriver();
-    motorDriver.setMotorValues(value, -value);
-    delay(80);
-    motorDriver.setMotorValues(-value, value);
-    delay(80);
-    motorDriver.setMotorValues(value, -value);
-    delay(80);
-    motorDriver.setMotorValues(-value, value);
-    delay(80);
-    motorDriver.setMotorValues(value, -value);
-    delay(80);
-    motorDriver.setMotorValues(-value, value);
-    delay(80);
-    motorDriver.setMotorValues(0, 0);
-    motorDriver.disableMotorDriver();
   }
 
   // Quick start restarts the fuel gauge in hopes of getting a more accurate.
   fuelGauge.quickStart();
 
+  // Initialize the motor driver.
+  while (motorDriver.begin() == false) {
+    debug(ERR, "Motor driver not found on I2C bus. Check wiring.");
+  }
+
+  // If motor driver initialised, disable it and set motor PWM values to zero.
+  motorDriver.disableMotorDriver();
+  motorDriver.setMotorValues(0, 0);
+
+  // Test motors.
+  motorDriver.commitMotorTest();
+
   // Initialize softAP and print IP address in terminal when softAP is initialized.
   WiFi.softAP(apName, apPassword);
   debug(SCS, "AP IP address: %s", String(WiFi.softAPIP()).c_str());
+
+  // WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+
+  // Print local IP address and start web server
+  // Serial.println("");
+  // Serial.println("WiFi connected.");
+  // Serial.println("IP address: ");
+  // Serial.println(WiFi.localIP());
+
+  // debug(SCS, "AP IP address: %s", WiFi.localIP().c_str());
 
   // Initialize LittleFS.
   if (!LittleFS.begin()) {
@@ -197,55 +214,114 @@ void setup() {
 */
 void loop() {
   // Slow things down a bit.
-  delay(240);
+  delay(40);
 
-  // Request and print the charger state from the slave
-  uint8_t chargerState = motorDriver.getChargerState();
+  // Set static variables that are only used in this loop function. Static variables are constructed only once.
+  static MotorDriver::ChargerState chargerStateRaw;
+  static MotorDriver::MotorDriverState motorDriverStateRaw;
+  static String chargerStateString = String();
+  static String motorDriverStateString = String();
 
-  if (chargerState) {
+  chargerStateRaw = motorDriver.getChargerState();
+  motorDriverStateRaw = motorDriver.isMotorDriverEnabled();
+
+  if (chargerStateRaw != MotorDriver::ChargerState::Error) {
+    chargerState = chargerStateRaw;
+
     switch (chargerState) {
-      case 1:
-        batteryChargeStatus = NONE;
+      case (MotorDriver::ChargerState::NotConnected):
+        chargerStateString = "Running on battery";
         motorDriver.enableMotorDriver();
-        notifications.initializePixel(0, 0, 0, 255);
+        //notifications.initializePixel(0, 0, 0, 255);
+        toggleWheelCleanMode();
+
+        // botStatus = READY_TO_DRIVE;
+
+        if (wheelCleanMode) {
+          botStatus = WHEEL_CLEAN_MODE;
+        } else {
+          botStatus = READY_TO_DRIVE;
+        }
+
         break;
-      case 2:
-        batteryChargeStatus = CHARGING;
+      case (MotorDriver::ChargerState::Charging):
+        chargerStateString = "Battery charging";
         motorDriver.disableMotorDriver();
-        notifications.initializePixel(0, 255, 0, 0);
+        //notifications.initializePixel(0, 255, 0, 0);
+        resetWheelCleanMode();
+
+        botStatus = CHARGING;
+
         break;
-      case 3:
-        batteryChargeStatus = CHARGED;
+      case (MotorDriver::ChargerState::ChargingComplete):
+        chargerStateString = "Battery charged";
         motorDriver.disableMotorDriver();
-        notifications.initializePixel(0, 0, 255, 0);
+        //notifications.initializePixel(0, 0, 255, 0);
+        resetWheelCleanMode();
+
+        botStatus = CHARGING_COMPLETE;
+
         break;
       default:
-        Serial.println("Charger state: Unknown");
+        break;
+    }
+  }
+
+  if (motorDriverStateRaw != MotorDriver::MotorDriverState::Error) {
+    motorDriverState = motorDriverStateRaw;
+
+    switch (motorDriverState) {
+      case (MotorDriver::MotorDriverState::MotorDriverDisabled):
+        motorDriverStateString = "Motor driver disabled";
+        //notifications.initializePixel(1, 255, 0, 0);
+        break;
+      case (MotorDriver::MotorDriverState::MotorDriverEnabled):
+        motorDriverStateString = "Motor driver enabled";
+        //notifications.initializePixel(1, 0, 0, 255);
+        break;
+      default:
         break;
     }
   }
 
   // Write all fuel gauge values to variables.
-  batteryVoltage = fuelGauge.getVoltage();
-  batterySoC = fuelGauge.getSOC();
+  fuelGauge.quickStart();                                  // Quick start restarts the fuel gauge in hopes of getting a more accurate guess for the SOC.
+  float batteryVoltage = fuelGauge.getVoltage();           // Get battery voltage.
+  int batterySoC = constrain(fuelGauge.getSOC(), 0, 100);  // Constrain the value to a range from 0 to 100.
 
-  // Fuel gauge sometimes can show SoC larger than 100% so this prevents that.
-  if (batterySoC > 100) {
-    batterySoC = 100;
+  // Send battery data to web socket and show status for battery and charger in terminal.
+  debug(LOG, "Battery state - %sV, %s%%, %s, %s.", String(batteryVoltage).c_str(), String(batterySoC).c_str(), String(chargerStateString).c_str(), String(motorDriverStateString).c_str());
+  sendBatteryDataToWebSocket(batteryVoltage, batterySoC, chargerState);
+}
+
+/**
+* Toggles the wheel clean mode when the user button is pressed. 
+* If the mode is enabled, the motor driver is updated accordingly.
+*/
+void toggleWheelCleanMode() {
+  int currentUserButtonState = digitalRead(InputPins.UserButton);
+
+  if (currentUserButtonState == LOW && lastUserButtonState == HIGH) {
+    wheelCleanMode = !wheelCleanMode;
+
+    if (wheelCleanMode) {
+      motorDriver.enableWheelCleanMode();
+      notifications.audio.beep();
+    } else {
+      motorDriver.disableWheelCleanMode();
+      notifications.audio.doubleBeep();
+    }
   }
 
-  // Rewrite enum for charger status to show pretty print strings in terminal.
-  String chargerStatus = (batteryChargeStatus == NONE) ? "Running on battery" : (batteryChargeStatus == CHARGING) ? "Battery charging"
-                                                                                                                  : "Battery charged";
+  lastUserButtonState = currentUserButtonState;
+}
 
-  // Show status for battery and charger in terminal.
-  debug(LOG, "Battery state - %sV, %s%%, %s.", String(batteryVoltage).c_str(), String(batterySoC).c_str(), String(chargerStatus).c_str());
-
-  // Send battery data to web socket.
-  sendBatteryDataToWebSocket(batteryVoltage, batterySoC, batteryChargeStatus);
-
-  // Quick start restarts the fuel gauge in hopes of getting a more accurate guess for the SOC.
-  fuelGauge.quickStart();
+/**
+* Resets the wheel clean mode to its default state (disabled).
+* Sets the `wheelCleanMode` variable to false.
+*/
+void resetWheelCleanMode() {
+  wheelCleanMode = false;
 }
 
 /**
@@ -278,7 +354,7 @@ void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsE
         debug(LOG, "Motor PWM values - Right motor at %s, Left at motor %s.", String(rightMotorPWMValue), String(leftMotorPWMValue));
 
         // Use the values to control the motors.
-        motorDriver.setMotorValues(-leftMotorPWMValue, -rightMotorPWMValue);
+        motorDriver.setMotorValues(rightMotorPWMValue, leftMotorPWMValue);
       } else {
         debug(LOG, "Unexpected binary packet length.");
       }
@@ -292,14 +368,15 @@ void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsE
 * 
 * @param batteryVoltage The current battery voltage.
 * @param batterySoC The current state of charge of the battery (percentage).
-* @param chargerStatus The current status of the charger (enum).
+* @param chargerStatus The current status of the charger (MotorDriver::ChargerState enum).
 */
-void sendBatteryDataToWebSocket(float batteryVoltage, int batterySoC, BatteryChargeStatusEnum chargerStatus) {
+void sendBatteryDataToWebSocket(float batteryVoltage, int batterySoC, MotorDriver::ChargerState chargerStatus) {
   uint8_t packet[6];
 
-  memcpy(&packet[0], &batteryVoltage, sizeof(float));      // Battery Voltage (float, 4 bytes).
-  packet[4] = batterySoC;                                  // Battery SoC (1 byte).
-  packet[5] = static_cast<uint8_t>(chargerStatus) & 0x03;  // Charge Status (1 byte, with 2 least significant bits used). Ensure only 2 bits are used for the status.
+  // Serialize the data into the packet.
+  memcpy(&packet[0], &batteryVoltage, sizeof(float));  // Battery Voltage (float, 4 bytes).
+  packet[4] = batterySoC;                              // Battery SoC (1 byte).
+  packet[5] = static_cast<uint8_t>(chargerStatus);     // Charger Status (1 byte, directly from the enum).
 
   // Send the packet over WebSocket.
   webSocket.binaryAll(packet, sizeof(packet));
@@ -313,6 +390,34 @@ void sendBatteryDataToWebSocket(float batteryVoltage, int batterySoC, BatteryCha
 */
 void DeviceStatusThread(void* pvParameters) {
   while (true) {
+    // Clear the NeoPixel LED strip.
+    notifications.visual.clearAllPixels();
+
+    // Update LED status based on the current device status.
+    switch (botStatus) {
+      case NONE:
+        notifications.visual.notReadyMode();
+        break;
+      case NOT_READY:
+        notifications.visual.notReadyMode();
+        break;
+      case CHARGING:
+        notifications.visual.singlePixel(0, 255, 0, 0);
+        notifications.visual.singlePixel(1, 255, 0, 0);
+        break;
+      case CHARGING_COMPLETE:
+        notifications.visual.singlePixel(0, 0, 255, 0);
+        notifications.visual.singlePixel(1, 255, 0, 0);
+        break;
+      case READY_TO_DRIVE:
+        notifications.visual.singlePixel(0, 0, 0, 255);
+        notifications.visual.singlePixel(1, 0, 0, 255);
+        break;
+      case WHEEL_CLEAN_MODE:
+        notifications.visual.singlePixel(0, 255, 0, 255);
+        notifications.visual.singlePixel(1, 255, 0, 255);
+        break;
+    }
 
     // Add a delay to prevent WDT timeout.
     vTaskDelay(10 / portTICK_PERIOD_MS);  // Delay for 10 milliseconds.
