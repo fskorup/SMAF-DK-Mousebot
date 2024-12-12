@@ -111,10 +111,6 @@ void notFound(AsyncWebServerRequest* request) {
 void setup() {
   Serial.begin(115200);
 
-  // Initialize notifications.
-  notifications.visual.initializePixels();
-  notifications.visual.clearAllPixels();
-
   // Create a new task (DeviceStatusThread) and assign it to the primary core (ESP32_CORE_PRIMARY).
   xTaskCreatePinnedToCore(
     DeviceStatusThread,    // Function to implement the task.
@@ -388,6 +384,8 @@ void sendBatteryDataToWebSocket(float batteryVoltage, int batterySoC, MotorDrive
 * @param pvParameters Pointer to parameters passed to the task (not used in this implementation).
 */
 void DeviceStatusThread(void* pvParameters) {
+  // Initialize notifications.
+  notifications.visual.initializePixels();
   notifications.visual.clearAllPixels();
   notifications.audio.introMelody();
 
