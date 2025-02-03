@@ -140,6 +140,30 @@ void AudioVisualNotifications::Audio::doubleBeep() {
 }
 
 /**
+* Produces a double beep using the speaker.
+* This function generates two consecutive tones, 
+* each lasting 120 milliseconds, with an 80-millisecond pause between them.
+* The tones are played on the speaker connected to the specified pin.
+*/
+void AudioVisualNotifications::Audio::tripleBeep() {
+  tone(_parent._speakerPin, NOTE_E6);
+  delay(120);
+  noTone(_parent._speakerPin);
+
+  delay(80);
+
+  tone(_parent._speakerPin, NOTE_E6);
+  delay(120);
+  noTone(_parent._speakerPin);
+
+  delay(80);
+
+  tone(_parent._speakerPin, NOTE_E6);
+  delay(120);
+  noTone(_parent._speakerPin);
+}
+
+/**
 * Initializes the visual notifications by setting up the NeoPixel strip.
 * This function must be called to prepare the NeoPixel for use. 
 */

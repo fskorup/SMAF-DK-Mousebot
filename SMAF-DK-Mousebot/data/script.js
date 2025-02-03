@@ -1,7 +1,16 @@
 let globalChargeStatus = 0;
+const control = document.getElementById("control-container");
 
 // Function to initialize WebSocket connection
 function connectWebSocket() {
+  // Update the UI
+  const chargeElement = document.getElementById("battery-charge");
+  const voltageElement = document.getElementById("battery-voltage");
+  const icCharger = document.getElementById("ic-charger");
+  const icBattery = document.getElementById("ic-battery");
+  const xAxisElement = document.getElementById("x-axis"); // New Element
+  const yAxisElement = document.getElementById("y-axis"); // New Element
+
   ws = new WebSocket("ws://" + window.location.hostname + "/ws");
 
   // Set binary type to ArrayBuffer
@@ -12,38 +21,67 @@ function connectWebSocket() {
   };
 
   ws.onmessage = function (event) {
-    // handleIncomingData(event.data);
+    // Ensure the data is received as an ArrayBuffer
+    if (!(event.data instanceof ArrayBuffer)) {
+      console.error("Received data is not an ArrayBuffer.");
+      return;
+    }
+
     const buffer = event.data;
     const dataView = new DataView(buffer);
 
+    // Verify the packet length
+    if (dataView.byteLength !== 14) {
+      console.error(`Unexpected packet size: ${dataView.byteLength} bytes. Expected 14 bytes.`);
+      return;
+    }
+
+    // Parse batteryVoltage (float32) from bytes 0-3
     const batteryVoltage = dataView.getFloat32(0, true); // true for little-endian
+
+    // Parse batterySoC (uint8) from byte 4
     const batterySoC = dataView.getUint8(4);
+
+    // Parse chargerStatus (uint8) from byte 5
     const batteryStatusByte = dataView.getUint8(5);
     const batteryChargeStatus = batteryStatusByte;
     let batteryStatusString;
 
     switch (batteryChargeStatus) {
       case 0xa0:
-        batteryStatusString = "Running on battery";
+        // batteryStatusString = "Running on battery";
         globalChargeStatus = 0;
+        icBattery.style.display = "block";
+        icCharger.style.display = "none";
         break;
       case 0xa1:
-        batteryStatusString = "Battery charging";
+        // batteryStatusString = "Battery charging";
         globalChargeStatus = 1;
+        icBattery.style.display = "none";
+        icCharger.style.display = "block";
         break;
       case 0xa2:
-        batteryStatusString = "Battery charged";
+        // batteryStatusString = "Battery charged";
         globalChargeStatus = 1;
+        icBattery.style.display = "none";
+        icCharger.style.display = "block";
         break;
       default:
-        batteryStatusString = "Unknown";
+        // batteryStatusString = "Unknown";
         globalChargeStatus = 1;
+        icBattery.style.display = "none";
+        icCharger.style.display = "block";
     }
 
-    // Update the UI
-    const chargeElement = document.getElementById("battery-charge");
-    const voltageElement = document.getElementById("battery-voltage");
-    const statusElement = document.getElementById("battery-status");
+    // **New Additions Start Here**
+
+    // Parse gx (float32) from bytes 6-9
+    const gx = dataView.getFloat32(6, true); // true for little-endian
+
+    // Parse gy (float32) from bytes 10-13
+    const gy = dataView.getFloat32(10, true); // true for little-endian
+
+    // **New Additions End Here**
 
     if (chargeElement && batterySoC !== undefined) {
       chargeElement.textContent = `${batterySoC}%`;
@@ -52,16 +90,26 @@ function connectWebSocket() {
     }
 
     if (voltageElement && batteryVoltage !== undefined) {
-      voltageElement.textContent = `(${batteryVoltage.toFixed(2)}V)`;
+      voltageElement.textContent = `${batteryVoltage.toFixed(2)}V`;
     } else {
-      voltageElement.textContent = ``;
+      voltageElement.textContent = `0.00V`;
     }
 
-    if (statusElement && batteryStatusString !== undefined) {
-      statusElement.textContent = `${batteryStatusString}`;
+    // **New Additions Start Here**
+
+    if (xAxisElement && gx !== undefined) {
+      xAxisElement.textContent = `${gx.toFixed(2)}`;
     } else {
-      statusElement.textContent = ``;
+      xAxisElement.textContent = `0.00`;
     }
+
+    if (yAxisElement && gy !== undefined) {
+      yAxisElement.textContent = `${gy.toFixed(2)}`;
+    } else {
+      yAxisElement.textContent = `0.00`;
+    }
+
+    // **New Additions End Here**
   };
 
   ws.onclose = function () {
@@ -109,32 +157,6 @@ const driftIndicator = document.getElementById("driftIndicator");
 const verticalLimitIndicator = document.getElementById("verticalLimitIndicator");
 const horizontalLimitIndicator = document.getElementById("horizontalLimitIndicator");
 
-// document.getElementById("pro-button").addEventListener("click", function () {
-//     // Toggle the text content
-//     if (limit === 160) {
-//         // this.textContent = "Basic Mode";
-//         this.style.boxShadow = `0 2px 0 0 rgba(0, 0, 0, 0.025), inset 0 0 0 2px #FFFFFF, inset 0 -6px 0 0 rgba(50, 205, 50, 1.0)`;
-//         limit = 120;
-//     } else {
-//         // this.textContent = "Pro Mode";
-//         this.style.boxShadow = `0 2px 0 0 rgba(0, 0, 0, 0.025), inset 0 0 0 2px #FFFFFF, inset 0 -6px 0 0 rgba(0, 0, 0, 0.15)`;
-//         limit = 160;
-//     }
-// });
-
-// document.getElementById("expert-mode-checkbox").addEventListener("click", function () {
-//     // Toggle the text content
-//     if (limit === 160) {
-//         // this.textContent = "Basic Mode";
-//         //this.style.boxShadow = `0 2px 0 0 rgba(0, 0, 0, 0.025), inset 0 0 0 2px #FFFFFF, inset 0 -6px 0 0 rgba(50, 205, 50, 1.0)`;
-//         limit = 120;
-//     } else {
-//         // this.textContent = "Pro Mode";
-//         //this.style.boxShadow = `0 2px 0 0 rgba(0, 0, 0, 0.025), inset 0 0 0 2px #FFFFFF, inset 0 -6px 0 0 rgba(0, 0, 0, 0.15)`;
-//         limit = 160;
-//     }
-// });
-
 function initializeTracking({ clientX, clientY, changedTouches }) {
   if (clientX && clientY) {
     startX = clientX;
@@ -146,28 +168,35 @@ function initializeTracking({ clientX, clientY, changedTouches }) {
   }
 
   // Position the motionIndicator at the starting point
-  motionIndicator.style.left = `${startX}px`;
-  motionIndicator.style.top = `${startY}px`;
+  // motionIndicator.style.left = `${startX}px`;
+  // motionIndicator.style.top = `${startY}px`;
+
+  const rect = control.getBoundingClientRect(); // Get wrapper's position
+  const relativeX = startX - rect.left; // X relative to wrapper
+  const relativeY = startY - rect.top; // Y relative to wrapper
+
+  motionIndicator.style.left = `${relativeX}px`;
+  motionIndicator.style.top = `${relativeY}px`;
 
   // Show the motionIndicator
   motionIndicator.style.display = "flex";
 
   startIndicator.style.display = "block";
-  startIndicator.style.left = `${startX}px`;
-  startIndicator.style.top = `${startY}px`;
+  startIndicator.style.left = `${relativeX}px`;
+  startIndicator.style.top = `${relativeY}px`;
 
   horizontalLine.style.display = "block";
-  horizontalLine.style.top = `${startY}px`;
+  horizontalLine.style.top = `${relativeY}px`;
 
   verticalLine.style.display = "block";
-  verticalLine.style.left = `${startX}px`;
+  verticalLine.style.left = `${relativeX}px`;
 
   verticalLimitIndicator.style.display = "block";
-  verticalLimitIndicator.style.left = `${startX}px`;
+  verticalLimitIndicator.style.left = `${relativeX}px`;
   verticalLimitIndicator.style.width = `${limit * 2 + 1}px`;
 
   horizontalLimitIndicator.style.display = "block";
-  horizontalLimitIndicator.style.top = `${startY}px`;
+  horizontalLimitIndicator.style.top = `${relativeY}px`;
   horizontalLimitIndicator.style.height = `${limit * 2 + 1}px`;
 
   if (globalChargeStatus !== 0) {
@@ -180,12 +209,12 @@ function initializeTracking({ clientX, clientY, changedTouches }) {
 
   if (driftCompensation !== 0) {
     driftIndicator.style.display = "block";
-    driftIndicator.style.left = `${startX}px`;
+    driftIndicator.style.left = `${relativeX}px`;
     driftIndicator.style.width = `${driftCompensation * 2}px`;
   }
 
-  document.addEventListener("mousemove", handleMovement);
-  document.addEventListener("touchmove", handleMovement);
+  control.addEventListener("mousemove", handleMovement);
+  control.addEventListener("touchmove", handleMovement);
 }
 
 function resetTracking() {
@@ -200,8 +229,13 @@ function resetTracking() {
   horizontalLimitIndicator.style.display = "none";
   driftIndicator.style.display = "none";
 
-  document.removeEventListener("mousemove", handleMovement);
-  document.removeEventListener("touchmove", handleMovement);
+  control.removeEventListener("mousemove", handleMovement);
+  control.removeEventListener("touchmove", handleMovement);
+
+  const motorA = document.getElementById("motorA"); // New Element
+  const motorB = document.getElementById("motorB"); // New Element
+  motorA.textContent = `0`;
+  motorB.textContent = `0`;
 
   // Call sendMotorData with the left and right motor values
   sendMotorData(parseInt(0), parseInt(0));
@@ -256,8 +290,15 @@ function handleMovement({ clientX, clientY, changedTouches }) {
     const newY = startY - yMovement; // Subtract because yMovement was startY - clientY
 
     // Update motionIndicator's position
-    motionIndicator.style.left = `${newX}px`;
-    motionIndicator.style.top = `${newY}px`;
+    // motionIndicator.style.left = `${newX}px`;
+    // motionIndicator.style.top = `${newY}px`;
+
+    const rect = control.getBoundingClientRect(); // Get wrapper's position
+    const relativeX = newX - rect.left; // X relative to wrapper
+    const relativeY = newY - rect.top; // Y relative to wrapper
+
+    motionIndicator.style.left = `${relativeX}px`;
+    motionIndicator.style.top = `${relativeY}px`;
 
     if (xMovement < 0) {
       xMovement = xMovement + driftCompensation;
@@ -280,6 +321,11 @@ function handleMovement({ clientX, clientY, changedTouches }) {
 
     let leftMotor = parseInt((motorPWMs.leftMotor * 255) / limit); //motorPWMs.leftMotor;
     let rightMotor = parseInt((motorPWMs.rightMotor * 255) / limit); //motorPWMs.rightMotor;
+
+    const motorA = document.getElementById("motorA"); // New Element
+    const motorB = document.getElementById("motorB"); // New Element
+    motorA.textContent = `${rightMotor}`;
+    motorB.textContent = `${leftMotor}`;
 
     // Optional: Constrain motor values to PWM range (-255 to 255)
     // leftMotor = Math.max(-255, Math.min(255, leftMotor)).toFixed(0);
@@ -357,10 +403,10 @@ function calculateMotorPWM(x, y, limit) {
 }
 
 function addListeners() {
-  document.addEventListener("mousedown", initializeTracking);
-  document.addEventListener("mouseup", resetTracking);
-  document.addEventListener("touchstart", initializeTracking);
-  document.addEventListener("touchend", resetTracking);
+  control.addEventListener("mousedown", initializeTracking);
+  control.addEventListener("mouseup", resetTracking);
+  control.addEventListener("touchstart", initializeTracking);
+  control.addEventListener("touchend", resetTracking);
 }
 
 addListeners();

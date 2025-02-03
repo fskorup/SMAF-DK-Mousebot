@@ -31,7 +31,22 @@
 #include "AudioVisualNotifications.h"
 #include "MotorDriver.h"
 #include "SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library.h"
-#include "SparkFun_BMI270_Arduino_Library.h"
+#include "Arduino_BMI270_BMM150.h"
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "SquareEyes.h"
+
+#define SCREEN_WIDTH 128  // OLED display width, in pixels
+#define SCREEN_HEIGHT 64  // OLED display height, in pixels
+
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+// The pins for I2C are defined by the Wire-library.
+// On an arduino UNO:       A4(SDA), A5(SCL)
+// On an arduino MEGA 2560: 20(SDA), 21(SCL)
+// On an arduino LEONARDO:   2(SDA),  3(SCL), ...
+#define OLED_RESET -1        // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C  ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // Pin assignments for I2C.
 const struct {
@@ -67,12 +82,13 @@ AsyncWebServer server(80);                 // Create AsyncWebServer object on po
 AsyncWebSocket webSocket("/ws");           // Create a WebSocket object.
 const char* apName = "SMAF-DK-Mouse-Bot";  // AP name.
 const char* apPassword = "12345678";       // AP password.
-const char* ssid = "***";                  // Home network AP name.
-const char* password = "***";              // Home network AP password.
+const char* ssid = "SSID";                 // Home network AP name.
+const char* password = "PASS";             // Home network AP password.
 
 // I2C devices definitions.
 SFE_MAX1704X fuelGauge(MAX1704X_MAX17048);  // Create a MAX17048.
-MotorDriver motorDriver(0x68);              // Create a MotorDriver. Replace 0x68 with your slave device's address.
+MotorDriver motorDriver(0x32);              // Create a MotorDriver. Replace 0x68 with your slave device's address.
+SquareEyes eyes(display);                   // Eye width, height, and spacing.
 
 /**
 * Constructs an AudioVisualNotifications object with specified parameters.
@@ -98,6 +114,7 @@ MotorDriver::MotorDriverState motorDriverState = MotorDriver::MotorDriverState::
 
 int lastUserButtonState = HIGH;  // Previous button state.
 bool wheelCleanMode = false;     // Variable to keep track wheel clean mode.
+float accX, accY, accZ;          // Accelerometer readings.
 
 // Function to handle 404 errors
 void notFound(AsyncWebServerRequest* request) {
@@ -119,7 +136,7 @@ void setup() {
     NULL,                  // Task input parameter (e.g., delay).
     1,                     // Priority of the task.
     NULL,                  // Task handle.
-    ESP32_CORE_SECONDARY   // Core where the task should run.
+    ESP32_CORE_PRIMARY     // Core where the task should run.
   );
 
   // Set the pin mode for the user button to INPUT.
@@ -130,6 +147,11 @@ void setup() {
   // Wire.setPins(SDA_PIN_NUMBER, SCL_PIN_NUMBER);
   Wire.setPins(I2CPins.SDA, I2CPins.SCL);
   Wire.begin();
+
+  while (IMU.begin() == false) {
+    debug(ERR, "IMU not found on I2C bus. Check wiring.");
+    delay(240);
+  }
 
   // Initialize the fuel gauge.
   while (fuelGauge.begin() == false) {
@@ -147,9 +169,18 @@ void setup() {
   motorDriver.disableMotorDriver();
   motorDriver.setMotorValues(0, 0);
 
+  while (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    debug(ERR, "OLED not found on I2C bus. Check wiring.");
+    delay(240);
+  }
+
+  eyes.begin();
+  eyes.setBlinkIntervalRange(800, 3200);  // Blink interval between 1 and 5 seconds.
+  eyes.setBlinkDuration(40);              // Blink lasts for 32 ms.
+
   // Initialize softAP and print IP address in terminal when softAP is initialized.
   WiFi.softAP(apName, apPassword);
-  debug(SCS, "AP IP address: %s", String(WiFi.softAPIP()).c_str());
+  // debug(SCS, "AP IP address: %s", String(WiFi.softAPIP()).c_str());
 
   // WiFi.begin(ssid, password);
 
@@ -160,36 +191,41 @@ void setup() {
 
   // Serial.println("");
 
-  // Print local IP address and start web server
+  // // Print local IP address and start web server.
   // Serial.println("");
   // Serial.println("WiFi connected.");
   // Serial.println("IP address: ");
   // Serial.println(WiFi.localIP());
 
+  delay(2400);
+
   // debug(SCS, "AP IP address: %s", WiFi.localIP().c_str());
 
   // Initialize LittleFS.
-  if (!LittleFS.begin()) {
-    debug(ERR, "An error occurred while mounting LittleFS.");
-    return;
-  }
+  // if (!LittleFS.begin()) {
+  //   debug(ERR, "An error occurred while mounting LittleFS.");
+  //   return;
+  // }
 
   // Serve the HTML page.
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(LittleFS, "/index.html", String(), false);
-  });
+  // server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+  //   request->send(LittleFS, "/index.html", String(), false);
+  // });
 
   // Serve static files for web page.
-  server.serveStatic("/style.css", LittleFS, "/style.css");
-  server.serveStatic("/script.js", LittleFS, "/script.js");
-  server.serveStatic("/fonts/albert-sans.ttf", LittleFS, "/fonts/albert-sans.ttf");
+  // server.serveStatic("/style.css", LittleFS, "/style.css");
+  // server.serveStatic("/script.js", LittleFS, "/script.js");
+  // server.serveStatic("/fonts/albert-sans.ttf", LittleFS, "/fonts/albert-sans.ttf");
 
   // WebSocket event handler.
   webSocket.onEvent(onWebSocketEvent);
   server.addHandler(&webSocket);
 
+  // Increase the default HTTP session timeout
+  // DefaultHeaders::Instance().addHeader("Connection", "keep-alive");
+
   // Handle 404 errors.
-  server.onNotFound(notFound);
+  // server.onNotFound(notFound);
 
   // Start server and show success message in terminal.
   server.begin();
@@ -199,6 +235,7 @@ void setup() {
   fuelGauge.quickStart();
 
   // Test motors.
+  eyes.idle();  // Enter idle mode.
   motorDriver.commitMotorTest();
 }
 
@@ -208,8 +245,19 @@ void setup() {
 * Be mindful of keeping the loop efficient and avoiding long blocking operations.
 */
 void loop() {
+  eyes.update();
+
   // Slow things down a bit.
   delay(40);
+
+  // Read accelerometer
+  if (IMU.accelerationAvailable()) {
+    IMU.readAcceleration(accX, accY, accZ);
+  }
+
+  (accZ > 0) ? (eyes.flipVertical(true)) : (eyes.flipVertical(false));
+
+  // debug(LOG, "IMU: X %s, Y %s, Z %s.", String(accX).c_str(), String(accY).c_str(), String(accZ).c_str());
 
   // Set static variables that are only used in this loop function. Static variables are constructed only once.
   static MotorDriver::ChargerState chargerStateRaw;
@@ -227,23 +275,22 @@ void loop() {
       case (MotorDriver::ChargerState::NotConnected):
         chargerStateString = "Running on battery";
         motorDriver.enableMotorDriver();
-        //notifications.initializePixel(0, 0, 0, 255);
-        toggleWheelCleanMode();
-
-        // botStatus = READY_TO_DRIVE;
+        toggleWheelCleanMode(accZ);
 
         if (wheelCleanMode) {
           botStatus = WHEEL_CLEAN_MODE;
+          eyes.cleanMode();
         } else {
           botStatus = READY_TO_DRIVE;
+          eyes.idle();
         }
 
         break;
       case (MotorDriver::ChargerState::Charging):
         chargerStateString = "Battery charging";
         motorDriver.disableMotorDriver();
-        //notifications.initializePixel(0, 255, 0, 0);
         resetWheelCleanMode();
+        eyes.charging();
 
         botStatus = CHARGING;
 
@@ -251,8 +298,8 @@ void loop() {
       case (MotorDriver::ChargerState::ChargingComplete):
         chargerStateString = "Battery charged";
         motorDriver.disableMotorDriver();
-        //notifications.initializePixel(0, 0, 255, 0);
         resetWheelCleanMode();
+        eyes.chargingComplete();
 
         botStatus = CHARGING_COMPLETE;
 
@@ -268,11 +315,9 @@ void loop() {
     switch (motorDriverState) {
       case (MotorDriver::MotorDriverState::MotorDriverDisabled):
         motorDriverStateString = "Motor driver disabled";
-        //notifications.initializePixel(1, 255, 0, 0);
         break;
       case (MotorDriver::MotorDriverState::MotorDriverEnabled):
         motorDriverStateString = "Motor driver enabled";
-        //notifications.initializePixel(1, 0, 0, 255);
         break;
       default:
         break;
@@ -285,26 +330,31 @@ void loop() {
   int batterySoC = constrain(fuelGauge.getSOC(), 0, 100);  // Constrain the value to a range from 0 to 100.
 
   // Send battery data to web socket and show status for battery and charger in terminal.
-  debug(LOG, "Battery state - %sV, %s%%, %s, %s.", String(batteryVoltage).c_str(), String(batterySoC).c_str(), String(chargerStateString).c_str(), String(motorDriverStateString).c_str());
-  sendBatteryDataToWebSocket(batteryVoltage, batterySoC, chargerState);
+  // debug(LOG, "Battery state: %sV, %s%%, %s, %s.", String(batteryVoltage).c_str(), String(batterySoC).c_str(), String(chargerStateString).c_str(), String(motorDriverStateString).c_str());
+  sendBatteryDataToWebSocket(batteryVoltage, batterySoC, chargerState, accX, accY, accZ);
 }
 
 /**
 * Toggles the wheel clean mode when the user button is pressed. 
 * If the mode is enabled, the motor driver is updated accordingly.
 */
-void toggleWheelCleanMode() {
+void toggleWheelCleanMode(float accZ) {
   int currentUserButtonState = digitalRead(InputPins.UserButton);
 
   if (currentUserButtonState == LOW && lastUserButtonState == HIGH) {
-    wheelCleanMode = !wheelCleanMode;
-
-    if (wheelCleanMode) {
-      notifications.audio.beep();
-      motorDriver.enableWheelCleanMode();
+    if (accZ > 0) {
+      wheelCleanMode = !wheelCleanMode;
+      if (wheelCleanMode) {
+        eyes.cleanMode();
+        notifications.audio.beep();
+        motorDriver.enableWheelCleanMode();
+      } else {
+        eyes.idle();
+        notifications.audio.doubleBeep();
+        motorDriver.disableWheelCleanMode();
+      }
     } else {
-      notifications.audio.doubleBeep();
-      motorDriver.disableWheelCleanMode();
+      notifications.audio.tripleBeep();
     }
   }
 
@@ -340,38 +390,77 @@ void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsE
 
     // Ensure we received all the data in one packet and it's binary data
     if (info->final && info->index == 0 && info->len == len && info->opcode == WS_BINARY) {
-      if (len == 4) {  // 4 bytes expected (2 bytes for each motor value).
-        // Extract the motor values from the data array.
-        int16_t rightMotorPWMValue = (int16_t)(data[0] | (data[1] << 8));  // Little-endian.
-        int16_t leftMotorPWMValue = (int16_t)(data[2] | (data[3] << 8));   // Little-endian.
+      // Process based on the command type
+      uint8_t commandType = data[0];                                       // First byte indicates the command type
+      if (commandType == 0x01 && len == 5) {                               // Motor control command
+        int16_t rightMotorPWMValue = (int16_t)(data[1] | (data[2] << 8));  // Little-endian
+        int16_t leftMotorPWMValue = (int16_t)(data[3] | (data[4] << 8));   // Little-endian
 
-        // Log received motor PWM values.
-        debug(LOG, "Motor PWM values - Right motor at %s, Left at motor %s.", String(rightMotorPWMValue), String(leftMotorPWMValue));
+        debug(LOG, "Motor PWM values - Right motor at %s, Left motor at %s.", String(rightMotorPWMValue), String(leftMotorPWMValue));
 
-        // Use the values to control the motors.
-        motorDriver.setMotorValues(rightMotorPWMValue, leftMotorPWMValue);
+        // Use the values to control the motors
+        motorDriver.setMotorValues(leftMotorPWMValue, rightMotorPWMValue);
+      } else if (commandType == 0x02 && len == 2) {  // Example: Third command
+        uint8_t customValue = data[1];               // Example payload (e.g., configuration setting)
+
+        // Implement custom behavior here
+        // toggleWheelCleanMode(accZ);
+
+        if (accZ > 0) {
+          wheelCleanMode = !wheelCleanMode;
+          if (wheelCleanMode) {
+            eyes.cleanMode();
+            notifications.audio.beep();
+            motorDriver.enableWheelCleanMode();
+          } else {
+            eyes.idle();
+            notifications.audio.doubleBeep();
+            motorDriver.disableWheelCleanMode();
+          }
+        } else {
+          notifications.audio.tripleBeep();
+        }
       } else {
-        debug(LOG, "Unexpected binary packet length.");
+        debug(LOG, "Unexpected binary packet or command type.");
       }
     }
   }
 }
 
 /**
-* Sends battery data to connected WebSocket clients.
-* This function packages the battery voltage, state of charge (SoC), and charger status into a binary packet.
+* Sends battery and IMU data to connected WebSocket clients.
+* This function packages the battery voltage, state of charge (SoC), charger status,
+* and filtered angles gx and gy into a binary packet.
 * 
 * @param batteryVoltage The current battery voltage.
 * @param batterySoC The current state of charge of the battery (percentage).
 * @param chargerStatus The current status of the charger (MotorDriver::ChargerState enum).
+* @param accX The filtered angle around the X-axis.
+* @param accY The filtered angle around the Y-axis.
+* @param accZ The filtered angle around the Z-axis.
 */
-void sendBatteryDataToWebSocket(float batteryVoltage, int batterySoC, MotorDriver::ChargerState chargerStatus) {
-  uint8_t packet[6];
+void sendBatteryDataToWebSocket(float batteryVoltage, int batterySoC, MotorDriver::ChargerState chargerStatus, float accX, float accY, float accZ) {
+  // Define the packet size: 4 bytes for float, 1 byte for batterySoC, 1 byte for chargerStatus,
+  // 4 bytes for gx, and 4 bytes for gy. Total = 14 bytes.
+  uint8_t packet[18];
 
-  // Serialize the data into the packet.
-  memcpy(&packet[0], &batteryVoltage, sizeof(float));  // Battery Voltage (float, 4 bytes).
-  packet[4] = batterySoC;                              // Battery SoC (1 byte).
-  packet[5] = static_cast<uint8_t>(chargerStatus);     // Charger Status (1 byte, directly from the enum).
+  // Serialize batteryVoltage into bytes 0-3.
+  memcpy(&packet[0], &batteryVoltage, sizeof(float));  // 4 bytes
+
+  // Serialize batterySoC into byte 4.
+  packet[4] = static_cast<uint8_t>(batterySoC);  // 1 byte
+
+  // Serialize chargerStatus into byte 5.
+  packet[5] = static_cast<uint8_t>(chargerStatus);  // 1 byte
+
+  // Serialize gx into bytes 6-9.
+  memcpy(&packet[6], &accX, sizeof(float));  // 4 bytes
+
+  // Serialize gy into bytes 10-13.
+  memcpy(&packet[10], &accY, sizeof(float));  // 4 bytes
+
+  // Serialize gy into bytes 10-13.
+  memcpy(&packet[14], &accZ, sizeof(float));  // 4 bytes
 
   // Send the packet over WebSocket.
   webSocket.binaryAll(packet, sizeof(packet));

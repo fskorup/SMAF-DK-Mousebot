@@ -33,8 +33,8 @@ const struct {
 
 // Pin assignments for motor B control.
 const struct {
-  const int motorInputA = 18;
-  const int motorInputB = 17;
+  const int motorInputA = 17;
+  const int motorInputB = 18;
 } MotorBPins;
 
 // Pin assignments for charger status.
@@ -70,7 +70,7 @@ volatile ChargerState chargerState = NotConnected;                 // Variable t
 volatile MotorDriverState motorDriverState = MotorDriverDisabled;  // Variable to hold the current charger state.
 
 void setup() {
-  Wire.begin(0x68);              // Initialize I2C as slave with address 0x68.
+  Wire.begin(0x32);              // Initialize I2C as slave with address 0x68.
   Wire.onReceive(receiveEvent);  // Register event handler for receiving data.
   Wire.onRequest(requestEvent);  // Register event handler for sending data.
 

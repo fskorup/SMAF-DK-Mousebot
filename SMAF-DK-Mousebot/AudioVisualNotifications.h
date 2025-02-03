@@ -169,6 +169,14 @@ public:
     * The tones are played on the speaker connected to the specified pin.
     */
     void doubleBeep();
+
+    /**
+    * Produces a double beep using the speaker.
+    * This function generates two consecutive tones, 
+    * each lasting 120 milliseconds, with an 80-millisecond pause between them.
+    * The tones are played on the speaker connected to the specified pin.
+    */
+    void tripleBeep();
   private:
     AudioVisualNotifications& _parent;  // Reference to parent
   };
