@@ -34,19 +34,7 @@
 #include "Arduino_BMI270_BMM150.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include "SquareEyes.h"
-
-#define SCREEN_WIDTH 128  // OLED display width, in pixels
-#define SCREEN_HEIGHT 64  // OLED display height, in pixels
-
-// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-// The pins for I2C are defined by the Wire-library.
-// On an arduino UNO:       A4(SDA), A5(SCL)
-// On an arduino MEGA 2560: 20(SDA), 21(SCL)
-// On an arduino LEONARDO:   2(SDA),  3(SCL), ...
-#define OLED_RESET -1        // Reset pin # (or -1 if sharing Arduino reset pin)
-#define SCREEN_ADDRESS 0x3C  ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+#include "BlinkingEyes.h"
 
 // Pin assignments for I2C.
 const struct {
@@ -72,11 +60,20 @@ enum BotStatusEnum : byte {
   CHARGING,
   CHARGING_COMPLETE,
   READY_TO_DRIVE,
-  WHEEL_CLEAN_MODE
+  WHEEL_CLEAN_MODE,
+  BATTERY_CHECK
 };
 
 // Variable to store the current device status.
-BotStatusEnum botStatus = NONE;  // Initial state is set to NOT_READY.
+BotStatusEnum botStatus = NONE;      // Initial state is set to NOT_READY.
+BotStatusEnum lastBotStatus = NONE;  // Initial state is set to NOT_READY.
+
+// Define OLED properties and OLED object.
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define SCREEN_ADDRESS 0x3C
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 AsyncWebServer server(80);                 // Create AsyncWebServer object on port 80.
 AsyncWebSocket webSocket("/ws");           // Create a WebSocket object.
@@ -88,7 +85,7 @@ const char* password = "PASS";             // Home network AP password.
 // I2C devices definitions.
 SFE_MAX1704X fuelGauge(MAX1704X_MAX17048);  // Create a MAX17048.
 MotorDriver motorDriver(0x32);              // Create a MotorDriver. Replace 0x68 with your slave device's address.
-SquareEyes eyes(display);                   // Eye width, height, and spacing.
+BlinkingEyes eyes(display);
 
 /**
 * Constructs an AudioVisualNotifications object with specified parameters.
@@ -115,6 +112,16 @@ MotorDriver::MotorDriverState motorDriverState = MotorDriver::MotorDriverState::
 int lastUserButtonState = HIGH;  // Previous button state.
 bool wheelCleanMode = false;     // Variable to keep track wheel clean mode.
 float accX, accY, accZ;          // Accelerometer readings.
+
+bool botReady = false;
+float batteryVoltage = 0.0;  // Get battery voltage.
+int batterySoC = 0;          // Constrain the value to a range from 0 to 100.
+bool isBatteryCritical = false;
+unsigned long batteryCheckTimer = 0;
+unsigned long eyesIdleTimer = 0;
+
+// toggleWheelCleanMode function prototype.
+void toggleWheelCleanMode(bool forceToggle = false);
 
 // Function to handle 404 errors
 void notFound(AsyncWebServerRequest* request) {
@@ -166,7 +173,7 @@ void setup() {
   }
 
   // If motor driver initialised, disable it and set motor PWM values to zero.
-  motorDriver.disableMotorDriver();
+  // motorDriver.disableMotorDriver();
   motorDriver.setMotorValues(0, 0);
 
   while (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
@@ -174,9 +181,10 @@ void setup() {
     delay(240);
   }
 
+  display.setRotation(2);
   eyes.begin();
-  eyes.setBlinkIntervalRange(800, 3200);  // Blink interval between 1 and 5 seconds.
-  eyes.setBlinkDuration(40);              // Blink lasts for 32 ms.
+  // eyes.setBlinkIntervalRange(800, 3200);  // Blink interval between 1 and 5 seconds.
+  // eyes.setBlinkDuration(40);              // Blink lasts for 32 ms.
 
   // Initialize softAP and print IP address in terminal when softAP is initialized.
   WiFi.softAP(apName, apPassword);
@@ -196,6 +204,9 @@ void setup() {
   // Serial.println("WiFi connected.");
   // Serial.println("IP address: ");
   // Serial.println(WiFi.localIP());
+
+  motorDriver.commitMotorTest();
+  botReady = true;
 
   delay(2400);
 
@@ -232,11 +243,16 @@ void setup() {
   debug(SCS, "Web server started. You can control the Mousebot.");
 
   // Quick start restarts the fuel gauge in hopes of getting a more accurate.
-  fuelGauge.quickStart();
+  fuelGauge.quickStart();                              // Quick start restarts the fuel gauge in hopes of getting a more accurate guess for the SOC.
+  batteryVoltage = fuelGauge.getVoltage();             // Get battery voltage.
+  batterySoC = constrain(fuelGauge.getSOC(), 0, 100);  // Constrain the value to a range from 0 to 100.
+
+  if (batterySoC <= 10 && botStatus != CHARGING) {
+    isBatteryCritical = true;
+  }
 
   // Test motors.
-  eyes.idle();  // Enter idle mode.
-  motorDriver.commitMotorTest();
+  // eyes.idle();  // Enter idle mode.
 }
 
 /**
@@ -245,128 +261,151 @@ void setup() {
 * Be mindful of keeping the loop efficient and avoiding long blocking operations.
 */
 void loop() {
-  eyes.update();
+  static unsigned long fuelGaugeTimer = 0;
+  static unsigned long i2cTimer = 0;
 
-  // Slow things down a bit.
-  delay(40);
+  if (millis() - fuelGaugeTimer >= 4000) {
+    fuelGaugeTimer = millis();
 
-  // Read accelerometer
-  if (IMU.accelerationAvailable()) {
-    IMU.readAcceleration(accX, accY, accZ);
-  }
+    // Write all fuel gauge values to variables.
+    fuelGauge.quickStart();                              // Quick start restarts the fuel gauge in hopes of getting a more accurate guess for the SOC.
+    batteryVoltage = fuelGauge.getVoltage();             // Get battery voltage.
+    batterySoC = constrain(fuelGauge.getSOC(), 0, 100);  // Constrain the value to a range from 0 to 100.
 
-  (accZ > 0) ? (eyes.flipVertical(true)) : (eyes.flipVertical(false));
-
-  // debug(LOG, "IMU: X %s, Y %s, Z %s.", String(accX).c_str(), String(accY).c_str(), String(accZ).c_str());
-
-  // Set static variables that are only used in this loop function. Static variables are constructed only once.
-  static MotorDriver::ChargerState chargerStateRaw;
-  static MotorDriver::MotorDriverState motorDriverStateRaw;
-  static String chargerStateString = String();
-  static String motorDriverStateString = String();
-
-  chargerStateRaw = motorDriver.getChargerState();
-  motorDriverStateRaw = motorDriver.isMotorDriverEnabled();
-
-  if (chargerStateRaw != MotorDriver::ChargerState::Error) {
-    chargerState = chargerStateRaw;
-
-    switch (chargerState) {
-      case (MotorDriver::ChargerState::NotConnected):
-        chargerStateString = "Running on battery";
-        motorDriver.enableMotorDriver();
-        toggleWheelCleanMode(accZ);
-
-        if (wheelCleanMode) {
-          botStatus = WHEEL_CLEAN_MODE;
-          eyes.cleanMode();
-        } else {
-          botStatus = READY_TO_DRIVE;
-          eyes.idle();
-        }
-
-        break;
-      case (MotorDriver::ChargerState::Charging):
-        chargerStateString = "Battery charging";
-        motorDriver.disableMotorDriver();
-        resetWheelCleanMode();
-        eyes.charging();
-
-        botStatus = CHARGING;
-
-        break;
-      case (MotorDriver::ChargerState::ChargingComplete):
-        chargerStateString = "Battery charged";
-        motorDriver.disableMotorDriver();
-        resetWheelCleanMode();
-        eyes.chargingComplete();
-
-        botStatus = CHARGING_COMPLETE;
-
-        break;
-      default:
-        break;
+    if (batterySoC <= 10 && botStatus != CHARGING) {
+      isBatteryCritical = true;
     }
   }
 
-  if (motorDriverStateRaw != MotorDriver::MotorDriverState::Error) {
-    motorDriverState = motorDriverStateRaw;
+  if (millis() - i2cTimer >= 40) {
+    i2cTimer = millis();
 
-    switch (motorDriverState) {
-      case (MotorDriver::MotorDriverState::MotorDriverDisabled):
-        motorDriverStateString = "Motor driver disabled";
-        break;
-      case (MotorDriver::MotorDriverState::MotorDriverEnabled):
-        motorDriverStateString = "Motor driver enabled";
-        break;
-      default:
-        break;
+    // Slow things down a bit.
+    // delay(40);
+
+    // Read accelerometer
+    if (IMU.accelerationAvailable()) {
+      IMU.readAcceleration(accX, accY, accZ);
     }
-  }
 
-  // Write all fuel gauge values to variables.
-  fuelGauge.quickStart();                                  // Quick start restarts the fuel gauge in hopes of getting a more accurate guess for the SOC.
-  float batteryVoltage = fuelGauge.getVoltage();           // Get battery voltage.
-  int batterySoC = constrain(fuelGauge.getSOC(), 0, 100);  // Constrain the value to a range from 0 to 100.
+    // (accZ > 0) ? (eyes.flipVertical(false)) : (eyes.flipVertical(true));
 
-  // Send battery data to web socket and show status for battery and charger in terminal.
-  // debug(LOG, "Battery state: %sV, %s%%, %s, %s.", String(batteryVoltage).c_str(), String(batterySoC).c_str(), String(chargerStateString).c_str(), String(motorDriverStateString).c_str());
-  sendBatteryDataToWebSocket(batteryVoltage, batterySoC, chargerState, accX, accY, accZ);
-}
+    // debug(LOG, "IMU: X %s, Y %s, Z %s.", String(accX).c_str(), String(accY).c_str(), String(accZ).c_str());
 
-/**
-* Toggles the wheel clean mode when the user button is pressed. 
-* If the mode is enabled, the motor driver is updated accordingly.
-*/
-void toggleWheelCleanMode(float accZ) {
-  int currentUserButtonState = digitalRead(InputPins.UserButton);
+    // Set static variables that are only used in this loop function. Static variables are constructed only once.
+    static MotorDriver::ChargerState chargerStateRaw;
+    // static MotorDriver::MotorDriverState motorDriverStateRaw;
+    static String chargerStateString = String();
+    static String motorDriverStateString = String();
 
-  if (currentUserButtonState == LOW && lastUserButtonState == HIGH) {
-    if (accZ > 0) {
-      wheelCleanMode = !wheelCleanMode;
-      if (wheelCleanMode) {
-        eyes.cleanMode();
-        notifications.audio.beep();
-        motorDriver.enableWheelCleanMode();
-      } else {
-        eyes.idle();
-        notifications.audio.doubleBeep();
-        motorDriver.disableWheelCleanMode();
+    chargerStateRaw = motorDriver.getChargerState();
+    // motorDriverStateRaw = motorDriver.isMotorDriverEnabled();
+
+    if (chargerStateRaw != MotorDriver::ChargerState::Error) {
+      chargerState = chargerStateRaw;
+
+      switch (chargerState) {
+        case (MotorDriver::ChargerState::NotConnected):
+          chargerStateString = "Running on battery";
+          // motorDriver.enableMotorDriver();
+
+          if (botStatus != BATTERY_CHECK) {
+            if (wheelCleanMode) {
+              botStatus = WHEEL_CLEAN_MODE;
+            } else {
+              botStatus = READY_TO_DRIVE;
+            }
+          }
+
+          break;
+        case (MotorDriver::ChargerState::Charging):
+          botStatus = CHARGING;
+          chargerStateString = "Battery charging";
+          // motorDriver.disableMotorDriver();
+          forceDisableWheelCleanMode();
+
+          if (isBatteryCritical) {
+            isBatteryCritical = false;
+          }
+
+          break;
+        case (MotorDriver::ChargerState::ChargingComplete):
+          botStatus = CHARGING_COMPLETE;
+          chargerStateString = "Battery charged";
+          // motorDriver.disableMotorDriver();
+          forceDisableWheelCleanMode();
+
+          break;
+        default:
+          break;
       }
-    } else {
-      notifications.audio.tripleBeep();
     }
-  }
 
-  lastUserButtonState = currentUserButtonState;
+    if (chargerState == MotorDriver::ChargerState::NotConnected) {
+      toggleWheelCleanMode();
+    }
+
+    // if (motorDriverStateRaw != MotorDriver::MotorDriverState::Error) {
+    //   motorDriverState = motorDriverStateRaw;
+
+    //   switch (motorDriverState) {
+    //     case (MotorDriver::MotorDriverState::MotorDriverDisabled):
+    //       motorDriverStateString = "Motor driver disabled";
+    //       break;
+    //     case (MotorDriver::MotorDriverState::MotorDriverEnabled):
+    //       motorDriverStateString = "Motor driver enabled";
+    //       break;
+    //     default:
+    //       break;
+    //   }
+    // }
+
+    // Send battery data to web socket and show status for battery and charger in terminal.
+    debug(LOG, "Battery state: %sV, %s%%, %s.", String(batteryVoltage).c_str(), String(batterySoC).c_str(), String(chargerStateString).c_str());
+    sendBatteryDataToWebSocket(batteryVoltage, batterySoC, chargerState, accX, accY, accZ);
+  }
 }
 
 /**
 * Resets the wheel clean mode to its default state (disabled).
 * Sets the `wheelCleanMode` variable to false.
 */
-void resetWheelCleanMode() {
+void forceDisableWheelCleanMode() {
   wheelCleanMode = false;
+  motorDriver.disableWheelCleanMode();
+}
+
+/**
+* Toggles the wheel clean mode when the user button is pressed. 
+* If the mode is enabled, the motor driver is updated accordingly.
+*/
+void toggleWheelCleanMode(bool forceToggle) {
+  int currentUserButtonState = digitalRead(InputPins.UserButton);
+
+  // Check if button was pressed OR if function is called from WebSocket
+  if (forceToggle || (currentUserButtonState == LOW && lastUserButtonState == HIGH)) {
+    if (wheelCleanMode) {
+      if (accZ < 0) {
+        wheelCleanMode = false;
+        notifications.audio.doubleBeep();
+        motorDriver.disableWheelCleanMode();
+      } else {
+        notifications.audio.tripleBeep();  // If flipped, just beep, no toggle
+      }
+    } else {
+      if (accZ < 0 && botStatus != BATTERY_CHECK) {
+        wheelCleanMode = true;
+        notifications.audio.beep();
+        motorDriver.enableWheelCleanMode();
+      } else {
+        notifications.audio.beep();
+        batteryCheckTimer = millis();
+        botStatus = BATTERY_CHECK;
+      }
+    }
+  }
+
+  lastUserButtonState = currentUserButtonState;
 }
 
 /**
@@ -397,29 +436,11 @@ void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsE
         int16_t leftMotorPWMValue = (int16_t)(data[3] | (data[4] << 8));   // Little-endian
 
         debug(LOG, "Motor PWM values - Right motor at %s, Left motor at %s.", String(rightMotorPWMValue), String(leftMotorPWMValue));
+        motorDriver.setMotorValues(-leftMotorPWMValue, -rightMotorPWMValue);  // Use the values to control the motors-
+      } else if (commandType == 0x02 && len == 2) {                           // Example: Third command
+        uint8_t customValue = data[1];                                        // Example payload (e.g., configuration setting)
 
-        // Use the values to control the motors
-        motorDriver.setMotorValues(leftMotorPWMValue, rightMotorPWMValue);
-      } else if (commandType == 0x02 && len == 2) {  // Example: Third command
-        uint8_t customValue = data[1];               // Example payload (e.g., configuration setting)
-
-        // Implement custom behavior here
-        // toggleWheelCleanMode(accZ);
-
-        if (accZ > 0) {
-          wheelCleanMode = !wheelCleanMode;
-          if (wheelCleanMode) {
-            eyes.cleanMode();
-            notifications.audio.beep();
-            motorDriver.enableWheelCleanMode();
-          } else {
-            eyes.idle();
-            notifications.audio.doubleBeep();
-            motorDriver.disableWheelCleanMode();
-          }
-        } else {
-          notifications.audio.tripleBeep();
-        }
+        toggleWheelCleanMode(true);
       } else {
         debug(LOG, "Unexpected binary packet or command type.");
       }
@@ -479,33 +500,59 @@ void DeviceStatusThread(void* pvParameters) {
   notifications.audio.introMelody();
 
   while (true) {
-    // Update LED status based on the current device status.
-    switch (botStatus) {
-      case NONE:
-        notifications.visual.notReadyMode();
-        break;
-      case NOT_READY:
-        notifications.visual.notReadyMode();
-        break;
-      case CHARGING:
-        notifications.visual.singlePixel(0, 255, 0, 0);
-        notifications.visual.singlePixel(1, 255, 0, 0);
-        break;
-      case CHARGING_COMPLETE:
-        notifications.visual.singlePixel(0, 0, 255, 0);
-        notifications.visual.singlePixel(1, 255, 0, 0);
-        break;
-      case READY_TO_DRIVE:
-        notifications.visual.singlePixel(0, 0, 0, 255);
-        notifications.visual.singlePixel(1, 0, 0, 255);
-        break;
-      case WHEEL_CLEAN_MODE:
-        notifications.visual.singlePixel(0, 255, 0, 255);
-        notifications.visual.singlePixel(1, 255, 0, 255);
-        break;
+    if (botReady) {
+      // Update LED status based on the current device status.
+      switch (botStatus) {
+        case NONE:
+          notifications.visual.notReadyMode();
+          break;
+        case NOT_READY:
+          notifications.visual.notReadyMode();
+          break;
+        case CHARGING:
+          notifications.visual.singlePixel(0, 255, 0, 0);
+          notifications.visual.singlePixel(1, 255, 0, 0);
+          eyes.setChargingMode(batterySoC);
+          break;
+        case CHARGING_COMPLETE:
+          notifications.visual.singlePixel(0, 0, 255, 0);
+          notifications.visual.singlePixel(1, 0, 255, 0);
+          break;
+        case READY_TO_DRIVE:
+          notifications.visual.singlePixel(0, 0, 0, 0);
+          notifications.visual.singlePixel(1, 0, 0, 0);
+
+          if (isBatteryCritical) {
+            eyes.setLowBatteryWarning();
+          } else {
+            eyes.update();
+
+            if (millis() - eyesIdleTimer >= 3200) {  // Change expression every 5s
+              eyesIdleTimer = millis();
+              ExpressionState randomExpression = (ExpressionState)random(0, 5);
+              eyes.setExpression(randomExpression);
+            }
+          }
+          break;
+        case WHEEL_CLEAN_MODE:
+          notifications.visual.singlePixel(0, 0, 0, 255);
+          notifications.visual.singlePixel(1, 0, 0, 255);
+          eyes.setWheelCleanMode();
+          break;
+        case BATTERY_CHECK:
+          eyes.setBatteryCheckMode(batterySoC);
+
+          if (millis() - batteryCheckTimer >= 3200) {  // Change expression every 5s
+            botStatus = READY_TO_DRIVE;
+            batteryCheckTimer = millis();
+            eyesIdleTimer = millis();
+          }
+
+          break;
+      }
     }
 
     // Add a delay to prevent WDT timeout.
-    vTaskDelay(10 / portTICK_PERIOD_MS);  // Delay for 10 milliseconds.
+    vTaskDelay(8 / portTICK_PERIOD_MS);  // Delay for 10 milliseconds.
   }
 }

@@ -27,14 +27,14 @@
 
 // Pin assignments for motor A control.
 const struct {
-  const int motorInputA = 15;
-  const int motorInputB = 16;
+  const int motorInputA = 16;
+  const int motorInputB = 15;
 } MotorAPins;
 
 // Pin assignments for motor B control.
 const struct {
-  const int motorInputA = 17;
-  const int motorInputB = 18;
+  const int motorInputA = 18;
+  const int motorInputB = 17;
 } MotorBPins;
 
 // Pin assignments for charger status.
